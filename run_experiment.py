@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 from config import ConfigLoader
 from experiment_runner import ExperimentRunner
-from cluster_utils import get_slurm_array_info, setup_cluster_paths, check_cluster_environment
+from cluster_utils import get_slurm_array_info, setup_cluster_paths, check_cluster_environment, get_task_params_slurm
 
 
 def main():
@@ -50,26 +50,33 @@ def main():
         slurm_info = get_slurm_array_info()
         task_id = args.task_id if args.task_id is not None else slurm_info['task_id']
         
-        print(f"\n🖥️  CLUSTER MODE")
+        print(f"\n[CLUSTER MODE]")
         print(f"Job ID: {slurm_info['job_id']}")
         print(f"Array Job ID: {slurm_info['array_job_id']}")
         print(f"Task ID: {task_id}")
         print(f"Node: {slurm_info['node_name']}")
         
         # Run single task
-        result = runner.run_cluster_task(task_id)
+        params = get_task_params_slurm(config, task_id)
+        print(f"\nRunning experiment with params: {params}")
         
-        print(f"\n✅ Task {task_id} complete!")
+        result = runner.run_single_experiment(params)
+        
+        print(f"\n{'='*60}")
+        print(f"Task {task_id} Results:")
+        print(f"{'='*60}")
+        print(f"Total steps: {result.get('total_steps', 0)}")
         print(f"Crashed: {result.get('crashed', 'unknown')}")
-        print(f"Time to crash: {result.get('time_to_crash', 'N/A')}")
+        print(f"Crash type: {result.get('crash_type', 'N/A')}")
+        print(f"Final budget: ${result.get('final_budget', 0):.2f}")
+        print(f"{'='*60}")
         
     else:
         # Local mode: Run with joblib parallelization
-        print(f"\n💻 LOCAL MODE")
+        print(f"\n[LOCAL MODE]")
         print(f"Parallel jobs: {args.n_jobs}")
         
         # Expand grid to show what will be run
-        from config import ConfigLoader
         all_configs = ConfigLoader.expand_grid(config)
         print(f"Total experiments: {len(all_configs)}")
         

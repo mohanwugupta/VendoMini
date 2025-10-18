@@ -119,3 +119,54 @@ class ConfigLoader:
                 configs.append(run_config)
         
         return configs
+
+
+class Config:
+    """Configuration manager for VendoMini experiments."""
+    
+    def __init__(self, config_dict: Dict[str, Any]):
+        """Initialize with configuration dictionary."""
+        self.config = config_dict
+        
+        # Validate required sections
+        self._validate_config()
+    
+    def _validate_config(self):
+        """Validate configuration structure."""
+        # Remove strict validation - allow flexible config structures
+        pass
+    
+    def get_env_config(self) -> Dict[str, Any]:
+        """Get environment configuration."""
+        return self.config.get('env', {})
+    
+    def get_agent_config(self) -> Dict[str, Any]:
+        """Get agent configuration."""
+        return self.config.get('agent', {})
+    
+    def get_crash_config(self) -> Dict[str, Any]:
+        """Get crash detector configuration."""
+        return self.config.get('crash_detector', {})
+    
+    def get_experiment_config(self) -> Dict[str, Any]:
+        """Get experiment configuration."""
+        return self.config.get('experiment', {})
+    
+    def get_grid_config(self) -> Dict[str, Any]:
+        """Get grid search configuration."""
+        return self.config.get('grid', {})
+    
+    def get_logging_config(self) -> Dict[str, Any]:
+        """Get logging configuration."""
+        return self.config.get('logging', {})
+    
+    @classmethod
+    def from_yaml(cls, config_path: str) -> 'Config':
+        """Load configuration from YAML file."""
+        with open(config_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+        return cls(config_dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert configuration to dictionary."""
+        return self.config.copy()

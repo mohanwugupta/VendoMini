@@ -80,38 +80,34 @@ class LLMAgent:
                 from transformers import AutoTokenizer, AutoModelForCausalLM
                 import torch
                 
-                print(f"Loading HuggingFace model: {self.model_name}")
+                print(f"[*] Loading HuggingFace model: {self.model_name}")
                 
-                # Check for local model first (cluster-aware loading)
-                models_dir = os.getenv('TRANSFORMERS_CACHE', os.getenv('HF_HOME', None))
-                model_to_load = self.model_name  # Default to model name
+                # Check cache directories
+                hf_home = os.getenv('HF_HOME')
+                transformers_cache = os.getenv('TRANSFORMERS_CACHE')
+                if hf_home:
+                    print(f"[*] HF_HOME: {hf_home}")
+                if transformers_cache:
+                    print(f"[*] TRANSFORMERS_CACHE: {transformers_cache}")
                 
-                if models_dir:
-                    # Try to find local model using cluster utilities pattern
-                    try:
-                        from cluster_utils import get_local_model_path
-                        local_path = get_local_model_path(models_dir, self.model_name)
-                        if local_path:
-                            model_to_load = local_path
-                            print(f"📦 Using local model from: {local_path}")
-                        else:
-                            print(f"🌐 Local model not found, will download: {self.model_name}")
-                    except ImportError:
-                        print(f"🌐 cluster_utils not available, using model name: {self.model_name}")
+                # HuggingFace will automatically use cache if available
+                # No need to manually construct paths - just use model_name
+                model_to_load = self.model_name
                 
                 # Load tokenizer
-                print(f"Loading tokenizer from: {model_to_load}")
+                print(f"[*] Loading tokenizer...")
                 tokenizer = AutoTokenizer.from_pretrained(
                     model_to_load,
                     trust_remote_code=True
                 )
+                print(f"[*] Tokenizer loaded successfully")
                 
                 # Determine device
                 device = "cuda" if torch.cuda.is_available() else "cpu"
-                print(f"Using device: {device}")
+                print(f"[*] Device: {device}")
                 
                 # Load model with appropriate settings
-                print(f"Loading model from: {model_to_load}")
+                print(f"[*] Loading model weights...")
                 model = AutoModelForCausalLM.from_pretrained(
                     model_to_load,
                     torch_dtype=torch.float16 if device == "cuda" else torch.float32,
@@ -120,16 +116,20 @@ class LLMAgent:
                     trust_remote_code=True
                 )
                 
+                print(f"[*] Model loaded successfully!")
+                
                 return {
                     'tokenizer': tokenizer,
                     'model': model,
                     'device': device
                 }
             except ImportError as e:
-                print(f"HuggingFace dependencies not available: {e}")
+                print(f"[ERROR] HuggingFace dependencies not available: {e}")
                 return None
             except Exception as e:
-                print(f"Error loading HuggingFace model: {e}")
+                print(f"[ERROR] Failed to load HuggingFace model: {e}")
+                import traceback
+                traceback.print_exc()
                 return None
         return None
     
@@ -160,14 +160,14 @@ class LLMAgent:
         
         # Debug: print response
         if len(response) < 500:
-            print(f"  🔍 LLM Response: {response}")
+            print(f"  [DEBUG] LLM Response: {response}")
         
         # Parse response into action and prediction
         try:
             action, prediction = self._parse_llm_response(response, available_tools)
             return action, prediction
         except Exception as e:
-            print(f"  ⚠️ Error parsing LLM response: {e}")
+            print(f"  [WARNING] Error parsing LLM response: {e}")
             print(f"     Response was: {response[:200]}")
             print(f"     Falling back to heuristic")
             return self._heuristic_agent(observation, available_tools)
@@ -178,15 +178,12 @@ class LLMAgent:
         available_tools: List[str]
     ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         """
-        Simple heuristic agent for testing.
+        Minimal heuristic agent for when LLM is not available.
         
-        This is a placeholder that should be replaced with actual LLM calls.
+        This should NOT be used for experiments - only for basic testing.
+        The agent will exhibit pathological behavior (looping) by design.
         """
-        # Simple strategy: Check storage, order if low
-        storage = observation.get('storage', {})
-        budget = observation.get('budget', 0)
-        
-        # Check inbox first
+        # Deliberately simple/pathological: always check inbox
         action = {
             'tool': 'tool_check_inbox',
             'args': {}
@@ -386,15 +383,15 @@ Your response:"""
         # Ensure required args for specific tools
         if action_tool == 'tool_order' and not all(k in action_args for k in ['supplier_id', 'sku', 'quantity']):
             # Missing required args - fall back to safe action
-            print(f"     ⚠️ Missing args for tool_order, using tool_check_storage instead")
+            print(f"     [WARNING] Missing args for tool_order, using tool_check_storage instead")
             action_tool = 'tool_check_storage'
             action_args = {}
         elif action_tool == 'tool_quote' and not all(k in action_args for k in ['supplier_id', 'sku', 'qty']):
-            print(f"     ⚠️ Missing args for tool_quote, using tool_check_budget instead")
+            print(f"     [WARNING] Missing args for tool_quote, using tool_check_budget instead")
             action_tool = 'tool_check_budget'
             action_args = {}
         elif action_tool == 'tool_cancel_order' and 'order_id' not in action_args:
-            print(f"     ⚠️ Missing order_id for cancel, using tool_check_inbox instead")
+            print(f"     [WARNING] Missing order_id for cancel, using tool_check_inbox instead")
             action_tool = 'tool_check_inbox'
             action_args = {}
         

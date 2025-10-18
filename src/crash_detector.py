@@ -101,8 +101,10 @@ class CrashDetector:
         if self.crash_detected:
             return True, self.crash_type
         
-        if len(history) < 5:
-            # Need minimum history
+        # Need minimum history to detect meaningful patterns
+        min_steps = 5
+        if len(history) < min_steps:
+            # Not enough history yet
             return False, None
         
         # Take recent window

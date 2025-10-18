@@ -48,7 +48,7 @@ def setup_cluster_paths(base_dir: Optional[str] = None, models_dir: Optional[str
     os.environ['TRANSFORMERS_CACHE'] = models_dir
     os.environ['HF_DATASETS_CACHE'] = models_dir
     
-    print(f"🔧 HuggingFace cache set to: {models_dir}")
+    print(f"[*] HuggingFace cache set to: {models_dir}")
     
     # Create directories if they don't exist
     for path in [paths['logs'], paths['checkpoints'], paths['results'], paths['data']]:
@@ -98,6 +98,72 @@ def get_task_config(task_id: int, all_configs: List[Dict[str, Any]]) -> Dict[str
         raise ValueError(f"Task ID {task_id} out of range (max: {len(all_configs)-1})")
     
     return all_configs[task_id]
+
+
+def expand_grid_slurm(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Expand grid parameters for SLURM array jobs.
+    
+    Args:
+        config: Configuration dictionary with grid parameters
+        
+    Returns:
+        List of parameter dictionaries for each task
+    """
+    from itertools import product
+    import copy
+    
+    grid = config.get('grid', {})
+    replications = config.get('experiment', {}).get('replications', 1)
+    base_seed = config.get('experiment', {}).get('seed', 42)
+    
+    if not grid:
+        # No grid parameters, create configs based on replications
+        params_list = []
+        for rep in range(replications):
+            params = {
+                'replication_id': rep,
+                'seed': base_seed + rep if base_seed else rep
+            }
+            params_list.append(params)
+        return params_list
+    
+    # Generate all combinations of grid parameters
+    grid_keys = list(grid.keys())
+    grid_values = [grid[k] if isinstance(grid[k], list) else [grid[k]] 
+                   for k in grid_keys]
+    
+    combinations = list(product(*grid_values))
+    
+    params_list = []
+    for combo_idx, combo in enumerate(combinations):
+        for rep in range(replications):
+            params = dict(zip(grid_keys, combo))
+            params['combination_id'] = combo_idx
+            params['replication_id'] = rep
+            params['seed'] = base_seed + combo_idx * replications + rep if base_seed else combo_idx * replications + rep
+            params_list.append(params)
+    
+    return params_list
+
+
+def get_task_params_slurm(config: Dict[str, Any], task_id: int) -> Dict[str, Any]:
+    """
+    Get parameters for a specific SLURM task.
+    
+    Args:
+        config: Configuration dictionary
+        task_id: Task ID from SLURM_ARRAY_TASK_ID
+        
+    Returns:
+        Parameter dictionary for this task
+    """
+    all_params = expand_grid_slurm(config)
+    
+    if task_id >= len(all_params):
+        raise ValueError(f"Task ID {task_id} exceeds number of parameter combinations ({len(all_params)})")
+    
+    return all_params[task_id]
 
 
 def save_task_results(

@@ -2,9 +2,59 @@
 
 import json
 import csv
+import logging
 from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime
+
+
+def setup_logging(logs_dir: str = "logs"):
+    """
+    Set up logging configuration.
+    
+    Args:
+        logs_dir: Directory to save log files
+    """
+    logs_path = Path(logs_dir)
+    logs_path.mkdir(parents=True, exist_ok=True)
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(logs_path / "experiment.log"),
+            logging.StreamHandler()
+        ]
+    )
+
+
+def log_step(steps_file: Path, step_info: Dict[str, Any]):
+    """
+    Log a single step to JSONL file.
+    
+    Args:
+        steps_file: Path to steps.jsonl file
+        step_info: Step information dictionary
+    """
+    steps_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(steps_file, 'a') as f:
+        f.write(json.dumps(step_info) + '\n')
+
+
+def save_summary(summary_file: Path, summary: Dict[str, Any]):
+    """
+    Save run summary to JSON file.
+    
+    Args:
+        summary_file: Path to summary.json file
+        summary: Summary information dictionary
+    """
+    summary_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(summary_file, 'w') as f:
+        json.dump(summary, f, indent=2)
 
 
 class Logger:
