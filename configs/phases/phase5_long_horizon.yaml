@@ -1,0 +1,19 @@
+inherit: ../base.yaml
+
+experiment:
+  name: "phase5_long_horizon_extremes"
+  description: "5k-step stress with top/bottom models from Phase 4"
+  replications: 10
+
+grid:
+  simulation.complexity_level: [3, 4]
+  pe_induction.p_shock: [0.05, 0.10]
+  model.name: [TOP1, TOP2, BOTTOM1, BOTTOM2]   # Replace with selections from Phase 4
+
+fixed:
+  simulation.max_steps: 5000
+  pe_induction.pe_mag: medium
+  pe_induction.pe_type_mix: realistic
+  interface.prediction_mode: required+full
+  interface.recovery_tools: all
+  pe_induction.observability: full

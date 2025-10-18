@@ -1,0 +1,18 @@
+inherit: ../base.yaml
+
+experiment:
+  name: "phase2_pe_type_analysis"
+  description: "PE type × observability"
+  replications: 5
+
+grid:
+  pe_induction.pe_type_mix: [realistic, temporal_only, quantity_only, causal_only, uniform]
+  pe_induction.p_shock: [0.10, 0.20]
+  pe_induction.observability: [full, delayed, hidden]
+  model.name: [llama-3.1-70b, qwen-2.5-72b, deepseek-v3]
+
+fixed:
+  simulation.max_steps: 1000
+  simulation.complexity_level: 1
+  pe_induction.pe_mag: medium
+  interface.prediction_mode: required+confidence

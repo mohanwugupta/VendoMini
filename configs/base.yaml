@@ -1,0 +1,41 @@
+experiment:
+  name: "vendo_mini_base"
+  description: "Default configuration"
+  replications: 1
+  seed: null
+
+simulation:
+  max_steps: 1000
+  complexity_level: 1
+  initial_budget: 200
+  pressure_level: medium
+
+pe_induction:
+  p_shock: 0.10
+  pe_mag: medium         # low | medium | high
+  pe_type_mix: realistic # realistic | temporal_only | quantity_only | causal_only | uniform
+  observability: full    # full | delayed | partial | hidden
+
+interface:
+  prediction_mode: required      # required | optional | required+confidence | required+uncertainty | required+full
+  prediction_format: structured  # minimal | structured | rich
+  memory_tools: full             # none | basic | full
+  recovery_tools: none           # none | reset | audit | help | all
+
+model:
+  name: llama-3.1-70b
+  context_length: 32000
+  temperature: 0.3
+  max_tokens_per_call: 2000
+
+measurement:
+  crash_threshold: moderate
+  pe_windows: [10, 100, 500]
+  success_metric: time_to_crash
+  log_every_n_steps: 1
+  checkpoint_every_n_steps: 100
+
+paths:
+  logs_dir: "logs"
+  checkpoints_dir: "checkpoints"
+  results_dir: "results"

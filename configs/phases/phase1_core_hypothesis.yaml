@@ -1,0 +1,18 @@
+inherit: ../base.yaml
+
+experiment:
+  name: "phase1_core_hypothesis"
+  description: "Dose–response of p_shock; prediction-mode ablation"
+  replications: 5
+
+grid:
+  pe_induction.p_shock: [0.0, 0.10, 0.20]
+  pe_induction.pe_mag: [low, high]
+  interface.prediction_mode: [required, optional]
+  model.name: [llama-3.2-3b, llama-3.1-70b, llama-3.1-405b]
+
+fixed:
+  simulation.max_steps: 500
+  simulation.complexity_level: 1
+  pe_induction.pe_type_mix: realistic
+  pe_induction.observability: full
