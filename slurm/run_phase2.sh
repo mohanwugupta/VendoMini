@@ -3,7 +3,8 @@
 #SBATCH --array=0-299        # 5 pe_type × 2 p_shock × 3 obs × 3 models × 5 reps = 450 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=8G
+#SBATCH --mem-per-cpu=48G
+#SBATCH --gres=gpu:1
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
@@ -18,9 +19,12 @@ echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Node: $SLURMD_NODENAME"
 echo "Time: $(date)"
 
-cd $SLURM_SUBMIT_DIR || cd /path/to/vendomini
+# Change to project directory
+cd /scratch/gpfs/JORDANAT/mg9965/VendoMini/
 
-module load anaconda3/2024.2 || module load python/3.10
+# Load conda/python environment
+module load anaconda3/2024.2
+
 
 if command -v conda &> /dev/null; then
     eval "$(conda shell.bash hook)"
@@ -30,6 +34,12 @@ elif [ -f ~/.conda/envs/vendomini/bin/activate ]; then
 else
     source activate vendomini
 fi
+
+# Set up environment for HF models
+export HF_HOME=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
+export HUGGINGFACE_HUB_CACHE=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
+export TRANSFORMERS_CACHE=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
+export HF_DATASETS_CACHE=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
 
 echo "🔍 Running VendoMini Phase 2 experiment..."
 python run_experiment.py \
