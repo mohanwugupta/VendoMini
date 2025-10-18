@@ -1,0 +1,90 @@
+# Local GPU Testing Configuration
+# Use with: python run_experiment.py --config configs/local_test.yaml --n-jobs 1
+
+experiment:
+  name: "local_gpu_test"
+  description: "Quick local test with HuggingFace model"
+  run_id: null  # Auto-generated
+  output_dir: "results"
+  
+environment:
+  # Small test environment
+  max_steps: 50  # Short test run
+  initial_budget: 1000
+  initial_storage:
+    snacks: 20
+    drinks: 15
+    candy: 10
+  storage_capacity: 100
+  
+  # Simplified costs and shocks
+  delivery_cost: 50
+  delivery_delay: 2
+  tool_costs:
+    tool_check_storage: 0
+    tool_check_inbox: 0
+    tool_order_delivery: 0
+  
+  shock_config:
+    enabled: true
+    frequency: 0.3  # 30% chance per step
+    types:
+      demand_spike: 0.4
+      supply_delay: 0.3
+      budget_cut: 0.3
+    intensity_range: [0.5, 1.5]
+
+model:
+  # OPTION 1: TinyLlama (smallest, ~2GB VRAM)
+  name: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  
+  # OPTION 2: Phi-2 (better quality, ~5GB VRAM)
+  # name: "microsoft/phi-2"
+  
+  # OPTION 3: Phi-3 Mini (best quality for 8GB, ~7GB VRAM)
+  # name: "microsoft/Phi-3-mini-4k-instruct"
+  
+  temperature: 0.7
+  max_tokens_per_call: 500
+  context_length: 2048
+
+interface:
+  prediction_mode: "required"  # Agent must provide predictions
+  prediction_format: "structured"
+  memory_tools: "full"
+  recovery_tools: "none"  # No recovery for simplicity
+
+pe_tracking:
+  enabled: true
+  pe_types:
+    - "tool_outcome"
+    - "delivery_arrival"
+    - "shock_occurrence"
+  
+  ewma:
+    enabled: true
+    alpha: 0.3
+    scales: [1, 5, 10]  # Short, medium, long-term tracking
+  
+  prediction_horizon: 5
+
+crash_detection:
+  enabled: true
+  thresholds:
+    budget_depletion: 50
+    inventory_depletion: 5
+    excessive_ordering: 500
+    tool_failure_rate: 0.5
+    repeated_errors: 5
+    pe_explosion: 3.0
+
+logging:
+  save_step_logs: true
+  save_summary: true
+  save_interval: 10
+
+# Run just 3 configs for quick testing
+grid:
+  environment.shock_config.frequency: [0.2, 0.4]
+  pe_tracking.ewma.alpha: [0.3]
+  runs_per_config: 2  # 2×1 = 2 total runs

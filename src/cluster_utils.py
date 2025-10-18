@@ -8,12 +8,13 @@ import random
 import numpy as np
 
 
-def setup_cluster_paths(base_dir: Optional[str] = None) -> Dict[str, str]:
+def setup_cluster_paths(base_dir: Optional[str] = None, models_dir: Optional[str] = None) -> Dict[str, str]:
     """
     Setup paths for cluster execution.
     
     Args:
         base_dir: Base directory (defaults to SLURM_SUBMIT_DIR or cwd)
+        models_dir: Directory for HuggingFace model cache (optional)
         
     Returns:
         Dictionary of paths
@@ -33,9 +34,28 @@ def setup_cluster_paths(base_dir: Optional[str] = None) -> Dict[str, str]:
         'data': str(base_path / 'data')
     }
     
+    # Set up models directory if provided
+    if models_dir is None:
+        # Try to use a models subdirectory in base_dir
+        models_dir = str(base_path / 'models')
+    
+    paths['models'] = models_dir
+    
+    # Set HuggingFace cache environment variables to use local models directory
+    # This prevents re-downloading models that are already on the cluster
+    os.environ['HF_HOME'] = models_dir
+    os.environ['HUGGINGFACE_HUB_CACHE'] = models_dir
+    os.environ['TRANSFORMERS_CACHE'] = models_dir
+    os.environ['HF_DATASETS_CACHE'] = models_dir
+    
+    print(f"🔧 HuggingFace cache set to: {models_dir}")
+    
     # Create directories if they don't exist
     for path in [paths['logs'], paths['checkpoints'], paths['results'], paths['data']]:
         Path(path).mkdir(parents=True, exist_ok=True)
+    
+    # Create models directory if it doesn't exist
+    Path(models_dir).mkdir(parents=True, exist_ok=True)
     
     return paths
 
@@ -153,6 +173,48 @@ def aggregate_task_results(
     print(f"✅ Aggregated {len(all_results)} results to {output_path}")
     
     return all_results
+
+
+def get_local_model_path(models_dir: str, model_name: str) -> Optional[str]:
+    """
+    Find the actual local model path in the models directory.
+    Follows HuggingFace cache structure: models--org--name/snapshots/hash/
+    
+    Args:
+        models_dir: Directory where models are cached
+        model_name: Model name (e.g., "microsoft/phi-2")
+        
+    Returns:
+        Path to local model if found, None otherwise
+    """
+    # Convert model name to HF cache format: models--org--name
+    cache_name = f"models--{model_name.replace('/', '--')}"
+    base_model_dir = os.path.join(models_dir, cache_name)
+    
+    if os.path.exists(base_model_dir):
+        # Check for snapshots directory (HF cache structure)
+        snapshots_dir = os.path.join(base_model_dir, "snapshots")
+        if os.path.exists(snapshots_dir) and os.path.isdir(snapshots_dir):
+            # Find the most recent snapshot
+            snapshots = [d for d in os.listdir(snapshots_dir) 
+                        if os.path.isdir(os.path.join(snapshots_dir, d))]
+            if snapshots:
+                # Use the first snapshot (typically there's only one)
+                snapshot_path = os.path.join(snapshots_dir, snapshots[0])
+                print(f"✅ Found local model: {snapshot_path}")
+                return snapshot_path
+        
+        # If no snapshots, check if base directory has the files
+        required_files = ['config.json']
+        has_required = all(os.path.exists(os.path.join(base_model_dir, f)) for f in required_files)
+        
+        if has_required:
+            print(f"✅ Found local model: {base_model_dir}")
+            return base_model_dir
+    
+    print(f"⚠️  Local model not found for {model_name} in {models_dir}")
+    print(f"   Will attempt to download from HuggingFace Hub")
+    return None
 
 
 def check_cluster_environment() -> Dict[str, Any]:
