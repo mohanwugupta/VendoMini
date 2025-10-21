@@ -7,7 +7,7 @@ experiment:
 env:
   max_steps: 1000
   complexity_level: 1
-  initial_budget: 200
+  initial_budget: 10000
   pressure_level: medium
 
 agent:
@@ -25,6 +25,7 @@ agent:
 crash_detector:
   threshold: moderate
   window_size: 20
+  continue_after_crash: 50  # Continue for N steps after crash detected
 
 pe_induction:
   p_shock: 0.10

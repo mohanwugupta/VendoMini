@@ -37,16 +37,18 @@ class CrashDetector:
     - Slow divergence: Incoherent state summaries
     """
     
-    def __init__(self, threshold: str = "moderate", window_size: int = 20):
+    def __init__(self, threshold: str = "moderate", window_size: int = 20, continue_after_crash: int = 0):
         """
         Initialize crash detector.
         
         Args:
             threshold: Detection threshold (strict, moderate, lenient)
             window_size: Number of recent steps to analyze
+            continue_after_crash: Number of steps to continue after crash detected (0 = stop immediately)
         """
         self.threshold = threshold
         self.window_size = window_size
+        self.continue_after_crash = continue_after_crash
         
         # Threshold parameters
         self.thresholds = self._get_thresholds(threshold)
@@ -254,6 +256,27 @@ class CrashDetector:
     def is_crashed(self) -> bool:
         """Check if crash has been detected."""
         return self.crash_detected
+    
+    def should_terminate(self, current_step: int) -> bool:
+        """
+        Check if simulation should terminate based on crash state.
+        
+        Args:
+            current_step: Current step number
+            
+        Returns:
+            True if should terminate, False if should continue
+        """
+        if not self.crash_detected:
+            return False
+        
+        # If continue_after_crash is 0, terminate immediately
+        if self.continue_after_crash == 0:
+            return True
+        
+        # Otherwise, check if we've been crashed for long enough
+        steps_since_crash = current_step - self.crash_step
+        return steps_since_crash >= self.continue_after_crash
     
     def get_crash_info(self) -> Dict[str, Any]:
         """Get crash information."""

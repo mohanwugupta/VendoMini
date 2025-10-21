@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=vendomini-phase1
-#SBATCH --array=0-359        # 3 p_shock × 2 pe_mag × 2 pred_mode × 6 models × 5 reps = 360 tasks
+#SBATCH --job-name=vendomini-phase3
+#SBATCH --array=0-719        # 3 complexity × 4 p_shock × 2 recovery × 6 models × 5 reps = 720 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=48G
@@ -8,12 +8,12 @@
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
-#SBATCH --time=2:00:00
+#SBATCH --time=2:00:00       # Longer time for complexity levels 2-3
 
-# VendoMini Phase 1: Core Hypothesis
-# Parallelizes across all parameter combinations via SLURM array jobs
+# VendoMini Phase 3: Complexity Scaling
+# Tests how complexity level and recovery tools affect crash behavior
 
-echo "🚀 Starting VendoMini Phase 1 Array Job"
+echo "🚀 Starting VendoMini Phase 3 Array Job"
 echo "Array Job ID: $SLURM_ARRAY_JOB_ID"
 echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Node: $SLURMD_NODENAME"
@@ -25,7 +25,7 @@ cd /scratch/gpfs/JORDANAT/mg9965/VendoMini/
 # Load conda/python environment
 module load anaconda3/2024.2
 
-# Activate environment (adjust to your setup)
+# Activate environment
 if command -v conda &> /dev/null; then
     eval "$(conda shell.bash hook)"
     conda activate vendomini
@@ -45,12 +45,9 @@ export HF_DATASETS_CACHE=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
-echo "🔍 Running VendoMini Phase 1 experiment..."
-echo "Task ID: $SLURM_ARRAY_TASK_ID"
-
-# Run the experiment with cluster flag
+echo "🔍 Running VendoMini Phase 3 experiment..."
 python run_experiment.py \
-    --config configs/phases/phase1_core_hypothesis.yaml \
+    --config configs/phases/phase3_complexity.yaml \
     --cluster
 
 echo "✅ Task $SLURM_ARRAY_TASK_ID complete!"

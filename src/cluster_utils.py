@@ -138,6 +138,8 @@ def expand_grid_slurm(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     params_list = []
     for combo_idx, combo in enumerate(combinations):
         for rep in range(replications):
+            # Create params dict with dotted keys preserved
+            # These will be applied to config using _set_nested later
             params = dict(zip(grid_keys, combo))
             params['combination_id'] = combo_idx
             params['replication_id'] = rep
@@ -145,6 +147,24 @@ def expand_grid_slurm(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             params_list.append(params)
     
     return params_list
+
+
+def _set_nested(d: Dict, path: str, value: Any):
+    """
+    Set a value in a nested dict using dot notation.
+    
+    Args:
+        d: Dictionary to modify
+        path: Dot-separated path (e.g., 'model.name')
+        value: Value to set
+    """
+    keys = path.split('.')
+    current = d
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    current[keys[-1]] = value
 
 
 def get_task_params_slurm(config: Dict[str, Any], task_id: int) -> Dict[str, Any]:

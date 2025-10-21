@@ -19,10 +19,22 @@ class LLMAgent:
         
         Args:
             config: Configuration dictionary with model settings
+                   Can be full config with 'agent' section or just agent config
         """
         self.config = config
-        model_cfg = config.get('model', {})
-        interface_cfg = config.get('interface', {})
+        
+        # Handle both config structures:
+        # 1. Full config with agent.model and agent.interface
+        # 2. Agent config with model and interface at top level
+        if 'agent' in config:
+            # Full config structure - extract agent section
+            agent_cfg = config['agent']
+            model_cfg = agent_cfg.get('model', {})
+            interface_cfg = agent_cfg.get('interface', {})
+        else:
+            # Direct agent config structure
+            model_cfg = config.get('model', {})
+            interface_cfg = config.get('interface', {})
         
         self.model_name = model_cfg.get('name', 'gpt-4')
         self.temperature = model_cfg.get('temperature', 0.3)
@@ -80,7 +92,13 @@ class LLMAgent:
                 from transformers import AutoTokenizer, AutoModelForCausalLM
                 import torch
                 
+                # FORCE OFFLINE MODE - Don't contact HuggingFace servers
+                # This is critical for cluster compute nodes without internet access
+                os.environ['HF_HUB_OFFLINE'] = '1'
+                os.environ['TRANSFORMERS_OFFLINE'] = '1'
+                
                 print(f"[*] Loading HuggingFace model: {self.model_name}")
+                print(f"[*] OFFLINE MODE: Models must be pre-cached locally")
                 
                 # Check cache directories
                 hf_home = os.getenv('HF_HOME')
@@ -98,7 +116,8 @@ class LLMAgent:
                 print(f"[*] Loading tokenizer...")
                 tokenizer = AutoTokenizer.from_pretrained(
                     model_to_load,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    local_files_only=True  # Don't try to download
                 )
                 print(f"[*] Tokenizer loaded successfully")
                 
@@ -113,7 +132,8 @@ class LLMAgent:
                     torch_dtype=torch.float16 if device == "cuda" else torch.float32,
                     device_map="auto",
                     low_cpu_mem_usage=True,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    local_files_only=True  # Don't try to download
                 )
                 
                 print(f"[*] Model loaded successfully!")
@@ -147,10 +167,17 @@ class LLMAgent:
             
         Returns:
             (action_dict, prediction_card)
+            
+        Raises:
+            RuntimeError: If LLM client is not initialized
         """
-        # Use LLM if available, otherwise fall back to heuristic
+        # Check if LLM is available - NO FALLBACK
         if self.client is None:
-            return self._heuristic_agent(observation, available_tools)
+            raise RuntimeError(
+                f"LLM client not initialized for model '{self.model_name}'. "
+                f"Provider: {self.provider}. "
+                f"This experiment cannot run without a working LLM."
+            )
         
         # Build prompt for LLM
         prompt = self._build_prompt(observation, available_tools)
@@ -163,40 +190,7 @@ class LLMAgent:
             print(f"  [DEBUG] LLM Response: {response}")
         
         # Parse response into action and prediction
-        try:
-            action, prediction = self._parse_llm_response(response, available_tools)
-            return action, prediction
-        except Exception as e:
-            print(f"  [WARNING] Error parsing LLM response: {e}")
-            print(f"     Response was: {response[:200]}")
-            print(f"     Falling back to heuristic")
-            return self._heuristic_agent(observation, available_tools)
-    
-    def _heuristic_agent(
-        self, 
-        observation: Dict[str, Any],
-        available_tools: List[str]
-    ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
-        """
-        Minimal heuristic agent for when LLM is not available.
-        
-        This should NOT be used for experiments - only for basic testing.
-        The agent will exhibit pathological behavior (looping) by design.
-        """
-        # Deliberately simple/pathological: always check inbox
-        action = {
-            'tool': 'tool_check_inbox',
-            'args': {}
-        }
-        
-        prediction = None
-        if self.prediction_mode != 'optional':
-            prediction = {
-                'tool': 'tool_check_inbox',
-                'args': {},
-                'expected_success': True
-            }
-        
+        action, prediction = self._parse_llm_response(response, available_tools)
         return action, prediction
     
     def _call_llm(self, prompt: str) -> str:

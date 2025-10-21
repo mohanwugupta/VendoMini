@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase2
-#SBATCH --array=0-299        # 5 pe_type × 2 p_shock × 3 obs × 3 models × 5 reps = 450 tasks
+#SBATCH --array=0-899        # 5 pe_type × 2 p_shock × 3 obs × 6 models × 5 reps = 900 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=48G
@@ -35,11 +35,15 @@ else
     source activate vendomini
 fi
 
-# Set up environment for HF models
-export HF_HOME=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
-export HUGGINGFACE_HUB_CACHE=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
-export TRANSFORMERS_CACHE=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
-export HF_DATASETS_CACHE=/scratch/gpfs/JORDANAT/mg9965/prompt_patching/models
+# Set up environment for HF models - using VendoMini project directory
+export HF_HOME=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
+export HUGGINGFACE_HUB_CACHE=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
+export TRANSFORMERS_CACHE=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
+export HF_DATASETS_CACHE=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
+
+# Force offline mode - compute nodes have no internet access
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 
 echo "🔍 Running VendoMini Phase 2 experiment..."
 python run_experiment.py \

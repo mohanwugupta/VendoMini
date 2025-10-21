@@ -9,7 +9,7 @@ grid:
   pe_induction.p_shock: [0.0, 0.10, 0.20]
   pe_induction.pe_mag: [low, high]
   interface.prediction_mode: [required, optional]
-  model.name: [llama-3.2-3b, llama-3.1-70b, llama-3.1-405b]
+  model.name: [openai/gpt-oss-20b, deepseek-ai/DeepSeek-V2.5, meta-llama/Llama-3.3-70B-Instruct, Qwen/Qwen2.5-72B-Instruct, Qwen/Qwen3-32B, deepseek-ai/deepseek-llm-7b-chat]
 
 fixed:
   simulation.max_steps: 500

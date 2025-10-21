@@ -101,31 +101,93 @@ class ExperimentRunner:
         run_logs_dir = self.logs_dir / f"run_{run_id}"
         run_logs_dir.mkdir(exist_ok=True)
 
-        # Initialize components
-        env_config = self.config.copy()  # Env needs full config
-        env_config.update(params)  # Apply grid parameters
+        # Initialize components with grid parameters properly applied
+        from src.cluster_utils import _set_nested
+        import copy
+        
+        env_config = copy.deepcopy(self.config)
+        
+        # Apply grid parameters using nested path notation
+        for key, value in params.items():
+            if '.' in key and key not in ['combination_id', 'replication_id', 'seed']:
+                # This is a dotted path like 'model.name' - apply as nested
+                _set_nested(env_config, key, value)
+            else:
+                # Direct key - just set it
+                env_config[key] = value
 
         print(f"[*] Initializing environment...")
         env = VendoMiniEnv(env_config)
         
         print(f"[*] Initializing agent...")
-        agent_config = self.base_config.get_agent_config()
-        model_name = agent_config.get('model', {}).get('name', 'unknown')
+        # Agent needs full config (it extracts model/interface sections internally)
+        # Get model name for logging
+        model_name = env_config.get('agent', {}).get('model', {}).get('name', 
+                     env_config.get('model', {}).get('name', 'unknown'))
         print(f"[*] Model: {model_name}")
         
+        # Track if model initialization failed
+        model_load_failed = False
+        model_load_error = None
+        
         try:
-            agent = LLMAgent(agent_config)
+            agent = LLMAgent(env_config)
             print(f"[*] Agent initialized successfully")
+            
+            # Check if client actually loaded
             if agent.client is None:
-                print(f"[WARNING] LLM client is None - agent will use pathological heuristic fallback!")
-                print(f"[WARNING] This means NO actual LLM is being used for decision-making")
+                model_load_failed = True
+                model_load_error = f"LLM client is None for model '{model_name}' (provider: {agent.provider})"
+                print(f"[ERROR] {model_load_error}")
+                print(f"[ERROR] Experiment cannot run without a working LLM - aborting")
+                
+                # Return early with error info
+                return {
+                    'run_id': run_id,
+                    'params': params,
+                    'seed': seed,
+                    'model_load_failed': True,
+                    'model_load_error': model_load_error,
+                    'total_steps': 0,
+                    'crashed': False,
+                    'crash_type': None,
+                    'final_budget': env.budget,
+                    'final_storage': env.storage.copy(),
+                    'cumulative_pe': {
+                        'temporal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
+                        'quantity': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
+                        'cost': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
+                        'causal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0}
+                    }
+                }
             else:
                 print(f"[*] LLM client loaded: provider={agent.provider}")
         except Exception as e:
+            model_load_failed = True
+            model_load_error = str(e)
             print(f"[ERROR] Failed to initialize agent: {e}")
             import traceback
             traceback.print_exc()
-            raise
+            
+            # Return early with error info
+            return {
+                'run_id': run_id,
+                'params': params,
+                'seed': seed,
+                'model_load_failed': True,
+                'model_load_error': model_load_error,
+                'total_steps': 0,
+                'crashed': False,
+                'crash_type': None,
+                'final_budget': env.budget,
+                'final_storage': env.storage.copy(),
+                'cumulative_pe': {
+                    'temporal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
+                    'quantity': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
+                    'cost': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
+                    'causal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0}
+                }
+            }
         
         print(f"[*] Initializing PE calculator and crash detector...")
         pe_calc = PECalculator()
@@ -185,14 +247,38 @@ class ExperimentRunner:
                 log_step(run_logs_dir / 'steps.jsonl', step_info)
 
                 # Check termination conditions
-                if crashed:
-                    print(f"[*] Crash detected at step {step}: {crash_type}")
+                if crashed and crash_detector.should_terminate(step):
+                    print(f"[*] Terminating at step {step}: {crash_type} (crash detected at step {crash_detector.crash_step})")
                     break
+                elif crashed:
+                    # Crash detected but continuing to observe behavior
+                    if step == crash_detector.crash_step:
+                        print(f"[*] Crash detected at step {step}: {crash_type} (continuing for {crash_detector.continue_after_crash} more steps)")
                 
                 # Check if budget depleted (terminal condition)
                 if env.budget <= 0:
                     print(f"[*] Budget depleted at step {step}")
                     break
+                    
+            except RuntimeError as e:
+                # This is likely from the agent failing to initialize or call LLM
+                error_msg = str(e)
+                print(f"[ERROR] RuntimeError at step {step}: {error_msg}")
+                
+                # Return with error status
+                return {
+                    'run_id': run_id,
+                    'params': params,
+                    'seed': seed,
+                    'model_load_failed': True,
+                    'model_load_error': error_msg,
+                    'total_steps': step,
+                    'crashed': True,
+                    'crash_type': 'model_error',
+                    'final_budget': env.budget,
+                    'final_storage': env.storage.copy(),
+                    'cumulative_pe': pe_calc.get_cumulative_pes()
+                }
                     
             except Exception as e:
                 print(f"[ERROR] Exception at step {step}: {e}")
@@ -209,6 +295,8 @@ class ExperimentRunner:
             'run_id': run_id,
             'params': params,
             'seed': seed,
+            'model_load_failed': model_load_failed,
+            'model_load_error': model_load_error,
             'total_steps': len(step_data),
             'crashed': crashed,
             'crash_type': crash_type if crashed else None,
