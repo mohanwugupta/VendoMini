@@ -485,5 +485,6 @@ class VendoMiniEnv:
             'inbox': self.inbox.copy(),
             'fulfilled_orders': self.fulfilled_orders,
             'total_orders_requested': self.total_orders_requested,
-            'scratchpad_size': len(self.scratchpad)
+            'scratchpad_size': len(self.scratchpad),
+            'scratchpad': self.scratchpad.copy()  # Include full scratchpad contents
         }

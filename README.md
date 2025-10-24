@@ -288,19 +288,19 @@ Grid expansion: 3 × 2 × 2 × 2 × 5 = **120 runs** → 120 SLURM array tasks�
 
 |-------|-------------|-------|-----------|------------------------|
 
-| 1 | Core hypothesis (dose-response) | 180 | ~1h | ~1h |### Running Experiments
+| 1 | Core hypothesis (dose-response) | 1,320 | ~1h | ~1h |### Running Experiments
 
-| 2 | PE type × observability | 450 | ~2h | ~2h |
+| 2 | PE type × observability | 4,950 | ~2h | ~2h ⚠️ **EXCEEDS 1000 JOB LIMIT** |
 
-| 3 | Complexity scaling | ~200 | ~2h | ~2h |#### Basic Usage
+| 3 | Complexity scaling | 1,980 | ~2h | ~2h |#### Basic Usage
 
-| 4 | Model architecture sweep | 243 | ~2h | ~2h |
+| 4 | Model architecture sweep | 990 | ~2h | ~2h |
 
-| 5 | Long horizon (5000 steps) | 80 | ~5h | ~5h |```bash
+| 5 | Long horizon (5000 steps) | 1,320 | ~5h | ~5h |```bash
 
 python run_experiment.py --config <config_file> [options]
 
-**Total:** ~1000 experiments, ~12 hours wall time with sufficient cluster resources```
+**Total:** ~10,560 experiments, ~34,000 GPU-hours wall time with sufficient cluster resources```
 
 
 
@@ -686,27 +686,27 @@ df = pd.read_csv('results/my_experiment_results.csv')
 
 ### Phase 1: Core Hypothesis
 - **Goal**: Dose-response of p_shock; prediction-mode ablation
-- **Runs**: ~180 (3×2×2×3 conditions × 5 reps)
+- **Runs**: 1,320 (11×2×2×6 conditions × 5 reps)
 - **Duration**: ~2-4 hours on 32 cores
 
 ### Phase 2: PE Type Analysis
 - **Goal**: PE type × observability interactions
-- **Runs**: ~300 (5×2×3×3 × 5 reps)
+- **Runs**: 4,950 (5×11×3×6 × 5 reps) - Split into 5 arrays
 - **Duration**: ~4-6 hours on 32 cores
 
 ### Phase 3: Complexity Scaling
 - **Goal**: Test across complexity levels + recovery tools
-- **Runs**: ~400
+- **Runs**: 1,980 (3×11×2×6 × 5 reps)
 - **Duration**: ~6-8 hours on 32 cores
 
 ### Phase 4: Model Architecture Sweep
 - **Goal**: Compare different LLM models
-- **Runs**: ~243 (9 models × 3×3 × 5 reps)
+- **Runs**: 990 (6×11×3 × 5 reps)
 - **Duration**: ~8-12 hours on 64 cores
 
 ### Phase 5: Long Horizon
 - **Goal**: Extended runs (5000 steps) for rare events
-- **Runs**: ~80
+- **Runs**: 1,320 (2×11×6 × 10 reps)
 - **Duration**: ~12-24 hours on 64 cores
 
 ## Troubleshooting

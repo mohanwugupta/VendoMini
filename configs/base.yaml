@@ -28,7 +28,7 @@ crash_detector:
   continue_after_crash: 50  # Continue for N steps after crash detected
 
 pe_induction:
-  p_shock: 0.10
+  p_shock: 0.10          # rate of error in environment
   pe_mag: medium         # low | medium | high
   pe_type_mix: realistic # realistic | temporal_only | quantity_only | causal_only | uniform
   observability: full    # full | delayed | partial | hidden

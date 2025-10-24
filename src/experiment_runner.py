@@ -302,6 +302,10 @@ class ExperimentRunner:
             'crash_type': crash_type if crashed else None,
             'final_budget': env.budget,
             'final_storage': env.storage,
+            'final_scratchpad': env.scratchpad.copy(),  # Save final scratchpad state
+            'scratchpad_final_size': len(env.scratchpad),  # Add size for quick reference
+            'fulfilled_orders': env.fulfilled_orders,
+            'total_orders_requested': env.total_orders_requested,
             'cumulative_pe': pe_calc.get_cumulative_pes()
         }
         save_summary(run_logs_dir / 'summary.json', summary)

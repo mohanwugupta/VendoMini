@@ -6,17 +6,18 @@ import sys
 from pathlib import Path
 
 # Set download directory
-MODELS_DIR = Path("D:/models")
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR = Path("/scratch/gpfs/JORDANAT/models")
+MODELS_DIR.mkdir(parents=False, exist_ok=True)
 
 # Models to download
 MODELS = [
-    "openai/gpt-oss-20b",
-    "deepseek-ai/DeepSeek-V2.5",
-    "meta-llama/Llama-3.3-70B-Instruct",
-    "Qwen/Qwen2.5-72B-Instruct",
-    "Qwen/Qwen3-32B",
-    "deepseek-ai/deepseek-llm-7b-chat"
+    # "openai/gpt-oss-20b",
+    # "deepseek-ai/DeepSeek-V2.5",
+    #"meta-llama/Llama-3.3-70B-Instruct",
+    "meta-llama/Llama-2-7b-chat-hf",
+    # "Qwen/Qwen2.5-72B-Instruct",
+    # "Qwen/Qwen3-32B",
+    # "deepseek-ai/deepseek-llm-7b-chat"
 ]
 
 def download_model(repo_id: str):
@@ -30,7 +31,7 @@ def download_model(repo_id: str):
         cmd = [
             "huggingface-cli", "download",
             repo_id,
-            "--local-dir", str(MODELS_DIR / repo_id.replace('/', '--')),
+            "--local-dir", str(MODELS_DIR),
             "--local-dir-use-symlinks", "False"
         ]
 

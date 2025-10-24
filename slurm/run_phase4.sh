@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase4
-#SBATCH --array=0-269        # 6 models × 3 p_shock × 3 pe_mag × 5 reps = 270 tasks
+#SBATCH --array=0-989        # 11 p_shock × 3 pe_mag × 6 models × 5 reps = 990 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=64G    # More memory for larger models
