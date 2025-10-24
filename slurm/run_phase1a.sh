@@ -8,7 +8,7 @@
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
-#SBATCH --time=1:00:00
+#SBATCH --time=2:00:00
 
 # VendoMini Phase 1a: Core Hypothesis (Split 1/2)
 # Parallelizes across parameter combinations via SLURM array jobs
