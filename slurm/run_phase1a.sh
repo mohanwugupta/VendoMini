@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase1a
-#SBATCH --array=0-1        # Phase 1 Split 1/2: tasks 0-659 (660 tasks)
+#SBATCH --array=0-659        # Phase 1 Split 1/2: tasks 0-659 (660 tasks)
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=48G
