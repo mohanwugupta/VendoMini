@@ -36,7 +36,9 @@ def main():
     
     # Setup paths
     if args.cluster or env_info['is_slurm']:
-        paths = setup_cluster_paths()
+        # Get project root directory (parent of script location)
+        project_root = str(Path(__file__).parent.absolute())
+        paths = setup_cluster_paths(base_dir=project_root)
         # Update config with cluster paths
         config['paths'] = paths
         print(f"Cluster paths setup: {paths['base']}")
