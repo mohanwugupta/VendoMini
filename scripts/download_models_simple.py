@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 # Set download directory
-MODELS_DIR = Path("/scratch/gpfs/JORDANAT/models")
-MODELS_DIR.mkdir(parents=False, exist_ok=True)
+MODELS_DIR = Path("/scratch/gpfs/JORDANAT/mg9965/VendoMini/models")
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Models to download
 MODELS = [
@@ -27,15 +27,20 @@ def download_model(repo_id: str):
     print(f"{'='*60}")
 
     try:
+        # Convert repo_id to directory name (org/name -> org--name)
+        dir_name = repo_id.replace('/', '--')
+        model_dir = MODELS_DIR / dir_name
+        
         # Use huggingface-cli for more reliable downloads
         cmd = [
             "huggingface-cli", "download",
             repo_id,
-            "--local-dir", str(MODELS_DIR),
+            "--local-dir", str(model_dir),
             "--local-dir-use-symlinks", "False"
         ]
 
         print(f"Running: {' '.join(cmd)}")
+        print(f"Downloading to: {model_dir}")
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode == 0:

@@ -108,12 +108,22 @@ class LLMAgent:
                 if transformers_cache:
                     print(f"[*] TRANSFORMERS_CACHE: {transformers_cache}")
                 
-                # HuggingFace will automatically use cache if available
-                # No need to manually construct paths - just use model_name
+                # Try to find the model in the local directory structure
+                # Models might be in: models/org--name/ format (from --local-dir downloads)
                 model_to_load = self.model_name
                 
+                # Check if model exists in simple directory format (from --local-dir)
+                if hf_home:
+                    simple_model_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
+                    if os.path.exists(simple_model_dir):
+                        print(f"[*] Found model in simple directory: {simple_model_dir}")
+                        model_to_load = simple_model_dir
+                    else:
+                        print(f"[*] Simple directory not found: {simple_model_dir}")
+                        print(f"[*] Will try using model name: {self.model_name}")
+                
                 # Load tokenizer
-                print(f"[*] Loading tokenizer...")
+                print(f"[*] Loading tokenizer from: {model_to_load}")
                 tokenizer = AutoTokenizer.from_pretrained(
                     model_to_load,
                     trust_remote_code=True,
