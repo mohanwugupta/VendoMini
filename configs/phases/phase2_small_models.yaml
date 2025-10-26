@@ -1,0 +1,19 @@
+inherit: ../base.yaml
+
+experiment:
+  name: "phase2_small_models"
+  description: "PE Type Analysis (Small models: 7B, 20B)"
+  replications: 5
+
+grid:
+  pe_induction.pe_type_mix: [realistic, temporal_only, quantity_only, causal_only, uniform]
+  pe_induction.p_shock: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  pe_induction.observability: [full, delayed, hidden]
+  agent.model.name: [deepseek-ai/deepseek-llm-7b-chat, openai/gpt-oss-20b]
+
+fixed:
+  simulation.max_steps: 1000
+  simulation.complexity_level: 1
+  pe_induction.pe_mag: medium
+  agent.interface.prediction_mode: required+confidence
+

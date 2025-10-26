@@ -149,6 +149,14 @@ class LLMAgent:
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 print(f"[*] Device: {device}")
                 
+                # Set memory management environment variable
+                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+                
+                # Clear GPU cache before loading
+                if device == "cuda":
+                    torch.cuda.empty_cache()
+                    print(f"[*] Cleared CUDA cache")
+                
                 # Determine dtype - use bfloat16 for better stability on large models
                 if device == "cuda":
                     # Check if bfloat16 is supported
@@ -162,12 +170,23 @@ class LLMAgent:
                     dtype = torch.float32
                     print(f"[*] Using float32 (CPU mode)")
                 
-                # Set max memory per GPU (75GB per device as recommended for large models)
+                # Set max memory per GPU - be more conservative
                 num_gpus = torch.cuda.device_count() if device == "cuda" else 0
-                max_memory = {i: "75GB" for i in range(num_gpus)} if num_gpus > 0 else None
                 
-                if max_memory:
-                    print(f"[*] Max memory per GPU: 75GB (total GPUs: {num_gpus})")
+                # Get available memory per GPU
+                if num_gpus > 0:
+                    gpu_memory = []
+                    for i in range(num_gpus):
+                        mem = torch.cuda.get_device_properties(i).total_memory
+                        gpu_memory.append(mem / (1024**3))  # Convert to GB
+                        print(f"[*] GPU {i}: {gpu_memory[-1]:.2f} GB total")
+                    
+                    # Use 90% of available memory to leave headroom, allow CPU offloading
+                    max_memory = {i: f"{int(gpu_memory[i] * 0.9)}GB" for i in range(num_gpus)}
+                    max_memory["cpu"] = "120GB"  # Allow CPU offloading for layers that don't fit on GPU
+                    print(f"[*] Max memory allocation: {max_memory}")
+                else:
+                    max_memory = None
                 
                 # Load model with appropriate settings for large models
                 print(f"[*] Loading model weights...")
@@ -178,12 +197,13 @@ class LLMAgent:
                     "local_files_only": True,  # Don't try to download
                 }
                 
-                # For multi-GPU or large models, use sequential device mapping with max_memory
+                # For multi-GPU or large models, use auto device mapping with max_memory and offloading
                 if max_memory:
-                    model_kwargs["device_map"] = "sequential"
+                    model_kwargs["device_map"] = "auto"  # Optimally distribute across GPUs and CPU
                     model_kwargs["max_memory"] = max_memory
-                    model_kwargs["attn_implementation"] = "eager"  # More stable for large models
-                    print(f"[*] Using sequential device mapping with max_memory constraints")
+                    model_kwargs["offload_folder"] = "./offload"  # Disk offload for very large models
+                    model_kwargs["offload_state_dict"] = True  # Reduces peak memory during loading
+                    print(f"[*] Using auto device mapping with max_memory constraints and CPU offloading")
                 else:
                     model_kwargs["device_map"] = "auto"
                     print(f"[*] Using auto device mapping")

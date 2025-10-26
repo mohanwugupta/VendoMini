@@ -1,19 +1,20 @@
 #!/bin/bash
-#SBATCH --job-name=vendomini-phase3
-#SBATCH --array=0-1979        # 11 p_shock × 3 complexity × 2 recovery × 6 models × 5 reps = 1,980 tasks
+#SBATCH --job-name=vendomini-phase1-small
+#SBATCH --array=0-439         # 11 p_shock × 2 pe_mag × 2 pred_mode × 2 models × 5 reps = 440 tasks
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=128G    # Increased to 128GB for large models
-#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=2     # Fewer CPUs needed for small models
+#SBATCH --mem-per-cpu=24G     # 48GB total RAM (enough for 7B-20B models)
+#SBATCH --gres=gpu:1          # Single GPU sufficient for 7B and 20B models
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
-#SBATCH --time=5:00:00       # Longer time for complexity levels 2-3 + large models
+#SBATCH --time=2:00:00        # Faster loading for small models
 
-# VendoMini Phase 3: Complexity Scaling
-# Tests how complexity level and recovery tools affect crash behavior
+# VendoMini Phase 1: Core Hypothesis (Small Models: 7B, 20B)
+# Parallelizes across all parameter combinations via SLURM array jobs
 
-echo "🚀 Starting VendoMini Phase 3 Array Job"
+echo "🚀 Starting VendoMini Phase 1 Array Job (SMALL MODELS)"
+echo "Models: deepseek-llm-7b-chat, gpt-oss-20b"
 echo "Array Job ID: $SLURM_ARRAY_JOB_ID"
 echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Node: $SLURMD_NODENAME"
@@ -25,7 +26,7 @@ cd /scratch/gpfs/JORDANAT/mg9965/VendoMini/
 # Load conda/python environment
 module load anaconda3/2024.2
 
-# Activate environment
+# Activate environment (adjust to your setup)
 if command -v conda &> /dev/null; then
     eval "$(conda shell.bash hook)"
     conda activate vendomini
@@ -45,10 +46,12 @@ export HF_DATASETS_CACHE=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
-echo "🔍 Running VendoMini Phase 3 experiment..."
+echo "🔍 Running VendoMini Phase 1 experiment (small models)..."
+echo "Task ID: $SLURM_ARRAY_TASK_ID"
+
+# Run the experiment with cluster flag
 python run_experiment.py \
-    --config configs/phases/phase3_complexity.yaml \
+    --config configs/phases/phase1_small_models.yaml \
     --cluster
 
-echo "✅ Task $SLURM_ARRAY_TASK_ID complete!"
-echo "🏁 Job finished at $(date)"
+echo "✅ Phase 1 Small Models task $SLURM_ARRAY_TASK_ID completed at $(date)"

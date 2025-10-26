@@ -1,0 +1,20 @@
+inherit: ../base.yaml
+
+experiment:
+  name: "phase5_small_models"
+  description: "Long Horizon Planning (Small models: 7B, 20B)"
+  replications: 10
+
+grid:
+  simulation.complexity_level: [3, 4]
+  pe_induction.p_shock: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  agent.model.name: [deepseek-ai/deepseek-llm-7b-chat, openai/gpt-oss-20b]   # Replace with selections from Phase 4
+
+fixed:
+  simulation.max_steps: 5000
+  pe_induction.pe_mag: medium
+  pe_induction.pe_type_mix: realistic
+  agent.interface.prediction_mode: required+full
+  agent.interface.recovery_tools: all
+  pe_induction.observability: full
+
