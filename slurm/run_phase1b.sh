@@ -3,12 +3,12 @@
 #SBATCH --array=660-1319      # Phase 1 Split 2/2: tasks 660-1319 (660 tasks)
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=48G
+#SBATCH --mem-per-cpu=128G    # Increased to 128GB for large models
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
-#SBATCH --time=2:00:00
+#SBATCH --time=3:00:00
 
 # VendoMini Phase 1b: Core Hypothesis (Split 2/2)
 # Parallelizes across parameter combinations via SLURM array jobs

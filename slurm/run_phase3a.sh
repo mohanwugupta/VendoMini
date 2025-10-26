@@ -3,7 +3,7 @@
 #SBATCH --array=0-989         # Phase 3 Split 1/2: tasks 0-989 (990 tasks)
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=48G
+#SBATCH --mem-per-cpu=128G    # Increased to 128GB for large models
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end

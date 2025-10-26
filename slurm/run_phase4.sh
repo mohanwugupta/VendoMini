@@ -3,7 +3,7 @@
 #SBATCH --array=0-989        # 11 p_shock × 3 pe_mag × 6 models × 5 reps = 990 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=64G    # More memory for larger models
+#SBATCH --mem-per-cpu=128G    # Increased to 128GB for large models
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end

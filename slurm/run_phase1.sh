@@ -3,12 +3,12 @@
 #SBATCH --array=0-1319        # 11 p_shock × 2 pe_mag × 2 pred_mode × 6 models × 5 reps = 1,320 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=48G
+#SBATCH --mem-per-cpu=128G    # Increased to 128GB for large models (70B+) with 75GB per GPU allocation
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
-#SBATCH --time=2:00:00
+#SBATCH --time=3:00:00        # Increased time for large model loading
 
 # VendoMini Phase 1: Core Hypothesis
 # Parallelizes across all parameter combinations via SLURM array jobs

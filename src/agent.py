@@ -135,18 +135,64 @@ class LLMAgent:
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 print(f"[*] Device: {device}")
                 
-                # Load model with appropriate settings
+                # Determine dtype - use bfloat16 for better stability on large models
+                if device == "cuda":
+                    # Check if bfloat16 is supported
+                    if torch.cuda.is_bf16_supported():
+                        dtype = torch.bfloat16
+                        print(f"[*] Using bfloat16 (supported by GPU)")
+                    else:
+                        dtype = torch.float16
+                        print(f"[*] Using float16 (bfloat16 not supported)")
+                else:
+                    dtype = torch.float32
+                    print(f"[*] Using float32 (CPU mode)")
+                
+                # Set max memory per GPU (75GB per device as recommended for large models)
+                num_gpus = torch.cuda.device_count() if device == "cuda" else 0
+                max_memory = {i: "75GB" for i in range(num_gpus)} if num_gpus > 0 else None
+                
+                if max_memory:
+                    print(f"[*] Max memory per GPU: 75GB (total GPUs: {num_gpus})")
+                
+                # Load model with appropriate settings for large models
                 print(f"[*] Loading model weights...")
+                model_kwargs = {
+                    "torch_dtype": dtype,
+                    "low_cpu_mem_usage": True,
+                    "trust_remote_code": True,
+                    "local_files_only": True,  # Don't try to download
+                }
+                
+                # For multi-GPU or large models, use sequential device mapping with max_memory
+                if max_memory:
+                    model_kwargs["device_map"] = "sequential"
+                    model_kwargs["max_memory"] = max_memory
+                    model_kwargs["attn_implementation"] = "eager"  # More stable for large models
+                    print(f"[*] Using sequential device mapping with max_memory constraints")
+                else:
+                    model_kwargs["device_map"] = "auto"
+                    print(f"[*] Using auto device mapping")
+                
                 model = AutoModelForCausalLM.from_pretrained(
                     model_to_load,
-                    torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-                    device_map="auto",
-                    low_cpu_mem_usage=True,
-                    trust_remote_code=True,
-                    local_files_only=True  # Don't try to download
+                    **model_kwargs
                 )
                 
                 print(f"[*] Model loaded successfully!")
+                
+                # Set up generation config with proper pad token
+                try:
+                    from transformers import GenerationConfig
+                    model.generation_config = GenerationConfig.from_pretrained(model_to_load, local_files_only=True)
+                    if model.generation_config.pad_token_id is None:
+                        model.generation_config.pad_token_id = model.generation_config.eos_token_id
+                        print(f"[*] Set pad_token_id to eos_token_id: {model.generation_config.eos_token_id}")
+                except Exception as e:
+                    print(f"[*] Could not load generation config: {e}")
+                    # Set basic generation config
+                    if tokenizer.pad_token_id is None:
+                        tokenizer.pad_token_id = tokenizer.eos_token_id
                 
                 return {
                     'tokenizer': tokenizer,

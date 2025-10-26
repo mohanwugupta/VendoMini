@@ -3,12 +3,12 @@
 #SBATCH --array=0-4949        # 11 p_shock × 5 pe_type × 3 obs × 6 models × 5 reps = 4,950 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=48G
+#SBATCH --mem-per-cpu=128G    # Increased to 128GB for large models
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
-#SBATCH --time=2:00:00
+#SBATCH --time=3:00:00
 
 # VendoMini Phase 2: PE Type Analysis
 # Parallelizes across all parameter combinations via SLURM array jobs

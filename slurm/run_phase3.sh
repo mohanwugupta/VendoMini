@@ -3,12 +3,12 @@
 #SBATCH --array=0-1979        # 11 p_shock × 3 complexity × 2 recovery × 6 models × 5 reps = 1,980 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=48G
+#SBATCH --mem-per-cpu=128G    # Increased to 128GB for large models
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
 #SBATCH --mail-user=your-email@domain.edu
-#SBATCH --time=2:00:00       # Longer time for complexity levels 2-3
+#SBATCH --time=5:00:00       # Longer time for complexity levels 2-3 + large models
 
 # VendoMini Phase 3: Complexity Scaling
 # Tests how complexity level and recovery tools affect crash behavior
