@@ -9,7 +9,7 @@ grid:
   simulation.complexity_level: [1, 2, 3]
   pe_induction.p_shock: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
   agent.interface.recovery_tools: [none, all]
-  agent.model.name: [deepseek-ai/deepseek-llm-7b-chat, openai/gpt-oss-20b]
+  agent.model.name: [meta-llama/Llama-2-7b-chat-hf, openai/gpt-oss-20b]
 
 fixed:
   pe_induction.pe_mag: medium

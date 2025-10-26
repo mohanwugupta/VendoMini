@@ -182,17 +182,9 @@ class LLMAgent:
                         print(f"[*] GPU {i}: {gpu_memory[-1]:.2f} GB total")
                     
                     # Use 90% of available memory to leave headroom, allow CPU offloading
-                    # Use integer bytes format for compatibility with all models
-                    max_memory = {}
-                    for i in range(num_gpus):
-                        max_memory[i] = int(gpu_memory[i] * 0.9 * (1024**3))  # Convert GB to bytes
-                    max_memory["cpu"] = 120 * (1024**3)  # 120GB in bytes for CPU offloading
-                    
-                    # Print in human-readable format
-                    print(f"[*] Max memory allocation:")
-                    for i in range(num_gpus):
-                        print(f"    GPU {i}: {max_memory[i] / (1024**3):.1f} GB")
-                    print(f"    CPU: {max_memory['cpu'] / (1024**3):.1f} GB")
+                    max_memory = {i: f"{int(gpu_memory[i] * 0.9)}GB" for i in range(num_gpus)}
+                    max_memory["cpu"] = "120GB"  # Allow CPU offloading for layers that don't fit on GPU
+                    print(f"[*] Max memory allocation: {max_memory}")
                 else:
                     max_memory = None
                 
