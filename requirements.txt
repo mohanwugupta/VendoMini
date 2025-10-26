@@ -15,6 +15,11 @@ tqdm>=4.66.0
 # torch>=2.0.0
 # transformers>=4.35.0
 # accelerate>=0.24.0
+# protobuf>=3.20.0
+
+# CLUSTER REQUIREMENTS (for HuggingFace models on cluster)
+# Install these on the cluster:
+# pip install torch>=2.0.0 transformers>=4.35.0 accelerate>=0.24.0 protobuf>=3.20.0 sentencepiece>=0.1.99
 
 # Optional dependencies (install separately if needed):
 # pip install ray[default]>=2.7.0  # For cluster execution (Linux/Mac only)

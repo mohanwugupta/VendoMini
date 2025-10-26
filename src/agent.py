@@ -129,7 +129,19 @@ class LLMAgent:
                     trust_remote_code=True,
                     local_files_only=True  # Don't try to download
                 )
+                
+                # Ensure tokenizer has pad token set
+                if tokenizer.pad_token is None:
+                    if tokenizer.eos_token:
+                        tokenizer.pad_token = tokenizer.eos_token
+                        print(f"[*] Set pad_token to eos_token: {tokenizer.eos_token}")
+                    else:
+                        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                        print(f"[*] Added [PAD] as pad_token")
+                
                 print(f"[*] Tokenizer loaded successfully")
+                print(f"[*] Pad token: {tokenizer.pad_token} (ID: {tokenizer.pad_token_id})")
+                print(f"[*] EOS token: {tokenizer.eos_token} (ID: {tokenizer.eos_token_id})")
                 
                 # Determine device
                 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -296,16 +308,22 @@ class LLMAgent:
                 device = self.client['device']
                 
                 # Tokenize input
-                inputs = tokenizer(prompt, return_tensors="pt").to(device)
+                inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True)
                 
-                # Generate response
+                # Move inputs to device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                
+                # Generate response with cache disabled to avoid DynamicCache issues
                 with torch.no_grad():
                     outputs = model.generate(
                         **inputs,
                         max_new_tokens=self.max_tokens,
                         temperature=self.temperature,
-                        do_sample=True,
-                        pad_token_id=tokenizer.eos_token_id
+                        do_sample=True if self.temperature > 0 else False,
+                        pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id else tokenizer.eos_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        use_cache=False,  # Disable cache to avoid DynamicCache errors
+                        num_beams=1,      # Use greedy or sampling, not beam search
                     )
                 
                 # Decode response (skip the input prompt)
@@ -317,6 +335,10 @@ class LLMAgent:
                 return response.strip()
             
             except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                print(f"[ERROR] HuggingFace generation failed: {e}")
+                print(f"[ERROR] Traceback: {error_details}")
                 return f"Error calling HuggingFace model: {e}"
         
         return "Unknown provider"
