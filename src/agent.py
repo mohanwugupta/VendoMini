@@ -57,12 +57,14 @@ class LLMAgent:
         """Detect which LLM provider to use based on model name."""
         model_lower = self.model_name.lower()
         
-        if 'gpt' in model_lower or 'o1' in model_lower:
+        # Check for HuggingFace format FIRST (org/model)
+        if '/' in self.model_name:
+            return 'huggingface'
+        # Then check for OpenAI models (no slash, contains gpt or o1)
+        elif 'gpt' in model_lower or 'o1' in model_lower:
             return 'openai'
         elif 'claude' in model_lower:
             return 'anthropic'
-        elif '/' in self.model_name:  # HuggingFace format: org/model
-            return 'huggingface'
         else:
             # Default to OpenAI-compatible
             return 'openai'
