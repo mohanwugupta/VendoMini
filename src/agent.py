@@ -128,7 +128,6 @@ class LLMAgent:
                 print(f"[*] Loading tokenizer from: {model_to_load}")
                 
                 # Special handling for Llama models (fix vocab_file Path bug)
-                import os
                 model_path_str = str(model_to_load)
                 tokenizer_kwargs = {
                     'trust_remote_code': True,
