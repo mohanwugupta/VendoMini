@@ -126,10 +126,25 @@ class LLMAgent:
                 
                 # Load tokenizer
                 print(f"[*] Loading tokenizer from: {model_to_load}")
+                
+                # Special handling for Llama models (fix vocab_file Path bug)
+                import os
+                model_path_str = str(model_to_load)
+                tokenizer_kwargs = {
+                    'trust_remote_code': True,
+                    'local_files_only': True
+                }
+                
+                # For Llama models, explicitly pass vocab_file as string to avoid Path object bug
+                if 'llama' in self.model_name.lower():
+                    vocab_file = os.path.join(model_path_str, 'tokenizer.model')
+                    if os.path.exists(vocab_file):
+                        print(f"[*] Explicitly setting vocab_file for Llama: {vocab_file}")
+                        tokenizer_kwargs['vocab_file'] = vocab_file
+                
                 tokenizer = AutoTokenizer.from_pretrained(
-                    str(model_to_load),  # Ensure it's a string (fixes Llama tokenizer bug)
-                    trust_remote_code=True,
-                    local_files_only=True  # Don't try to download
+                    model_path_str,
+                    **tokenizer_kwargs
                 )
                 
                 # Ensure tokenizer has pad token set
