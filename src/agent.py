@@ -127,7 +127,7 @@ class LLMAgent:
                 # Load tokenizer
                 print(f"[*] Loading tokenizer from: {model_to_load}")
                 tokenizer = AutoTokenizer.from_pretrained(
-                    model_to_load,
+                    str(model_to_load),  # Ensure it's a string (fixes Llama tokenizer bug)
                     trust_remote_code=True,
                     local_files_only=True  # Don't try to download
                 )

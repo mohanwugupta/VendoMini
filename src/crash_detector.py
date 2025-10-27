@@ -180,6 +180,11 @@ class CrashDetector:
         failures = 0
         for step in window:
             result = step.get('result', {})
+            
+            # Fix: Handle tuple return from env.execute_tool()
+            if isinstance(result, tuple):
+                result = result[0] if result else {}
+            
             if not result.get('success', True):
                 failures += 1
         
