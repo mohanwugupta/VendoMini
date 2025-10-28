@@ -217,8 +217,9 @@ class LLMAgent:
                         gpu_memory.append(mem / (1024**3))  # Convert to GB
                         print(f"[*] GPU {i}: {gpu_memory[-1]:.2f} GB total")
                     
-                    # Use 90% of available memory to leave headroom, allow CPU offloading
-                    max_memory = {i: f"{int(gpu_memory[i] * 0.9)}GB" for i in range(num_gpus)}
+                    # Use 85% of available memory to leave more headroom for inference
+                    # Large models need extra memory for activations and KV cache
+                    max_memory = {i: f"{int(gpu_memory[i] * 0.85)}GB" for i in range(num_gpus)}
                     max_memory["cpu"] = "120GB"  # Allow CPU offloading for layers that don't fit on GPU
                     print(f"[*] Max memory allocation: {max_memory}")
                 else:
@@ -251,6 +252,19 @@ class LLMAgent:
                 
                 print(f"[*] Model loaded successfully!")
                 
+                # Clear cache again after loading
+                if device == "cuda":
+                    torch.cuda.empty_cache()
+                    print(f"[*] Cleared CUDA cache after model loading")
+                
+                # Print memory usage
+                if device == "cuda":
+                    for i in range(num_gpus):
+                        allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                        reserved = torch.cuda.memory_reserved(i) / (1024**3)
+                        total = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+                        print(f"[*] GPU {i} memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved, {total:.2f}GB total")
+                
                 # Set up generation config with proper pad token
                 try:
                     from transformers import GenerationConfig
@@ -263,6 +277,34 @@ class LLMAgent:
                     # Set basic generation config
                     if tokenizer.pad_token_id is None:
                         tokenizer.pad_token_id = tokenizer.eos_token_id
+                
+                # Test inference with a small prompt to ensure model works
+                print(f"[*] Testing model with small inference...")
+                try:
+                    test_input = tokenizer("Hello", return_tensors="pt", padding=True)
+                    # Move input to same device as first model parameter
+                    device_0 = next(model.parameters()).device
+                    test_input = {k: v.to(device_0) for k, v in test_input.items()}
+                    
+                    # Run a tiny generation to verify it works
+                    with torch.no_grad():
+                        test_output = model.generate(
+                            **test_input,
+                            max_new_tokens=5,
+                            do_sample=False,
+                            pad_token_id=tokenizer.pad_token_id
+                        )
+                    print(f"[*] Test inference successful!")
+                    
+                    # Clear cache after test
+                    if device == "cuda":
+                        torch.cuda.empty_cache()
+                        
+                except Exception as e:
+                    print(f"[WARNING] Test inference failed: {e}")
+                    print(f"[WARNING] Model may not work properly during experiment")
+                    import traceback
+                    traceback.print_exc()
                 
                 return {
                     'tokenizer': tokenizer,
