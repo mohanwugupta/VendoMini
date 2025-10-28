@@ -6,17 +6,17 @@ import sys
 from pathlib import Path
 
 # Set download directory
-MODELS_DIR = Path("/scratch/gpfs/JORDANAT/mg9965/VendoMini/models")
+MODELS_DIR = Path("/scratch/gpfs/JORDANAT/models")
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Models to download
 MODELS = [
-    "openai/gpt-oss-20b",
-    "deepseek-ai/DeepSeek-V2.5",
+    # "openai/gpt-oss-20b",
+    # "deepseek-ai/DeepSeek-V2.5",
     "meta-llama/Llama-3.3-70B-Instruct",
-    "Qwen/Qwen2.5-72B-Instruct",
-    "Qwen/Qwen3-32B",
-    "deepseek-ai/deepseek-llm-7b-chat"
+    # "Qwen/Qwen2.5-72B-Instruct",
+    # "Qwen/Qwen3-32B",
+    # "deepseek-ai/deepseek-llm-7b-chat"
 ]
 
 def download_model(repo_id: str):
