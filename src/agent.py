@@ -245,12 +245,20 @@ class LLMAgent:
                     model_kwargs["device_map"] = "auto"
                     print(f"[*] Using auto device mapping")
                 
+                print(f"[DEBUG] About to call AutoModelForCausalLM.from_pretrained()...")
+                print(f"[DEBUG] Model: {model_to_load}")
+                print(f"[DEBUG] Device map: {model_kwargs.get('device_map', 'N/A')}")
+                print(f"[DEBUG] This may take 1-2 minutes for large models...")
+                
                 model = AutoModelForCausalLM.from_pretrained(
                     model_to_load,
                     **model_kwargs
                 )
                 
+                print(f"[DEBUG] AutoModelForCausalLM.from_pretrained() returned!")
                 print(f"[*] Model loaded successfully!")
+                print(f"[DEBUG] Model class: {type(model).__name__}")
+                print(f"[DEBUG] Model device map: {model.hf_device_map if hasattr(model, 'hf_device_map') else 'N/A'}")
                 
                 # Clear cache again after loading
                 if device == "cuda":
@@ -265,40 +273,59 @@ class LLMAgent:
                         total = torch.cuda.get_device_properties(i).total_memory / (1024**3)
                         print(f"[*] GPU {i} memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved, {total:.2f}GB total")
                 
-                # Set up generation config with proper pad token
+                # Set generation config directly instead of loading from pretrained
+                # This avoids potential network calls and hangs
+                print(f"[DEBUG] Setting up generation config...")
                 try:
-                    from transformers import GenerationConfig
-                    model.generation_config = GenerationConfig.from_pretrained(model_to_load, local_files_only=True)
-                    if model.generation_config.pad_token_id is None:
-                        model.generation_config.pad_token_id = model.generation_config.eos_token_id
-                        print(f"[*] Set pad_token_id to eos_token_id: {model.generation_config.eos_token_id}")
+                    # Just set the essential parameters directly
+                    if hasattr(model, 'generation_config'):
+                        if model.generation_config.pad_token_id is None:
+                            model.generation_config.pad_token_id = tokenizer.eos_token_id
+                            print(f"[*] Set model pad_token_id to eos_token_id: {tokenizer.eos_token_id}")
+                    
+                    # Also ensure tokenizer has pad token
+                    if tokenizer.pad_token_id is None:
+                        tokenizer.pad_token_id = tokenizer.eos_token_id
+                        print(f"[*] Set tokenizer pad_token_id to eos_token_id: {tokenizer.eos_token_id}")
+                    
+                    print(f"[DEBUG] Generation config setup complete")
                 except Exception as e:
-                    print(f"[*] Could not load generation config: {e}")
-                    # Set basic generation config
+                    print(f"[WARNING] Could not set generation config: {e}")
+                    # Ensure tokenizer has pad token as fallback
                     if tokenizer.pad_token_id is None:
                         tokenizer.pad_token_id = tokenizer.eos_token_id
                 
                 # Test inference with a small prompt to ensure model works
                 print(f"[*] Testing model with small inference...")
                 try:
+                    print(f"[DEBUG] Creating test input...")
                     test_input = tokenizer("Hello", return_tensors="pt", padding=True)
+                    
                     # Move input to same device as first model parameter
+                    print(f"[DEBUG] Finding model device...")
                     device_0 = next(model.parameters()).device
+                    print(f"[DEBUG] First parameter on device: {device_0}")
+                    
+                    print(f"[DEBUG] Moving test input to device...")
                     test_input = {k: v.to(device_0) for k, v in test_input.items()}
                     
                     # Run a tiny generation to verify it works
+                    print(f"[DEBUG] Running test generation (max_new_tokens=5)...")
                     with torch.no_grad():
                         test_output = model.generate(
                             **test_input,
                             max_new_tokens=5,
                             do_sample=False,
-                            pad_token_id=tokenizer.pad_token_id
+                            pad_token_id=tokenizer.pad_token_id,
+                            eos_token_id=tokenizer.eos_token_id,
                         )
                     print(f"[*] Test inference successful!")
+                    print(f"[DEBUG] Test output shape: {test_output.shape}")
                     
                     # Clear cache after test
                     if device == "cuda":
                         torch.cuda.empty_cache()
+                        print(f"[DEBUG] Cleared cache after test")
                         
                 except Exception as e:
                     print(f"[WARNING] Test inference failed: {e}")
