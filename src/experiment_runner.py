@@ -212,17 +212,27 @@ class ExperimentRunner:
         for step in range(max_steps):
             try:
                 # Get current observation
+                print(f"[DEBUG] Step {step}: Getting observation...")
                 observation = env.get_observation()
+                print(f"[DEBUG] Step {step}: Observation received (day={observation.get('day', 0)}, budget=${observation.get('budget', 0):.2f})")
 
                 # Agent makes decision
+                print(f"[DEBUG] Step {step}: Calling agent.get_action_and_prediction()...")
+                import time
+                action_start = time.time()
                 action, prediction = agent.get_action_and_prediction(observation, available_tools)
+                action_time = time.time() - action_start
+                print(f"[DEBUG] Step {step}: Agent decision received ({action_time:.2f}s, {action_time/60:.1f} min)")
+                print(f"[DEBUG] Step {step}: Action: {action.get('tool', 'unknown')}")
                 
                 # Log action for debugging
                 if step < 5 or step % 10 == 0:  # Log first 5 steps and every 10th step
                     print(f"  Step {step}: action={action.get('tool', 'unknown')}")
 
                 # Execute action
+                print(f"[DEBUG] Step {step}: Executing action in environment...")
                 result = env.step(action)
+                print(f"[DEBUG] Step {step}: Action executed, result received")
 
                 # Calculate prediction errors
                 pe = pe_calc.compute_pe(prediction, result)

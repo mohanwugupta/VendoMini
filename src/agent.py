@@ -402,22 +402,47 @@ class LLMAgent:
         elif self.provider == 'huggingface':
             try:
                 import torch
+                import time
+                
+                print(f"[DEBUG] Starting HuggingFace inference...")
+                start_time = time.time()
                 
                 tokenizer = self.client['tokenizer']
                 model = self.client['model']
                 device = self.client['device']
                 
+                print(f"[DEBUG] Retrieved tokenizer, model, device ({time.time() - start_time:.2f}s)")
+                
                 # Tokenize input
-                inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True)
+                print(f"[DEBUG] Tokenizing input (prompt length: {len(prompt)} chars)...")
+                tokenize_start = time.time()
+                inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, max_length=2048)
+                print(f"[DEBUG] Tokenization complete ({time.time() - tokenize_start:.2f}s, {inputs['input_ids'].shape[1]} tokens)")
                 
                 # Move inputs to device
-                inputs = {k: v.to(device) for k, v in inputs.items()}
+                print(f"[DEBUG] Moving inputs to device...")
+                move_start = time.time()
+                # Get the device of the first model parameter
+                first_param_device = next(model.parameters()).device
+                print(f"[DEBUG] First model parameter is on: {first_param_device}")
+                inputs = {k: v.to(first_param_device) for k, v in inputs.items()}
+                print(f"[DEBUG] Inputs moved to {first_param_device} ({time.time() - move_start:.2f}s)")
+                
+                # Print memory before generation
+                if device == "cuda":
+                    for i in range(torch.cuda.device_count()):
+                        allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                        reserved = torch.cuda.memory_reserved(i) / (1024**3)
+                        print(f"[DEBUG] GPU {i} before generation: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
                 
                 # Generate response with cache disabled to avoid DynamicCache issues
+                print(f"[DEBUG] Starting model.generate() with max_new_tokens={self.max_tokens}...")
+                gen_start = time.time()
+                
                 with torch.no_grad():
                     outputs = model.generate(
                         **inputs,
-                        max_new_tokens=self.max_tokens,
+                        max_new_tokens=min(self.max_tokens, 512),  # Cap at 512 to avoid long hangs
                         temperature=self.temperature,
                         do_sample=True if self.temperature > 0 else False,
                         pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id else tokenizer.eos_token_id,
@@ -426,11 +451,28 @@ class LLMAgent:
                         num_beams=1,      # Use greedy or sampling, not beam search
                     )
                 
+                gen_time = time.time() - gen_start
+                print(f"[DEBUG] Generation complete ({gen_time:.2f}s, {gen_time/60:.1f} min)")
+                
+                # Print memory after generation
+                if device == "cuda":
+                    for i in range(torch.cuda.device_count()):
+                        allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                        reserved = torch.cuda.memory_reserved(i) / (1024**3)
+                        print(f"[DEBUG] GPU {i} after generation: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                
                 # Decode response (skip the input prompt)
+                print(f"[DEBUG] Decoding response...")
+                decode_start = time.time()
                 response = tokenizer.decode(
                     outputs[0][inputs['input_ids'].shape[1]:],
                     skip_special_tokens=True
                 )
+                print(f"[DEBUG] Decoding complete ({time.time() - decode_start:.2f}s)")
+                
+                total_time = time.time() - start_time
+                print(f"[DEBUG] Total inference time: {total_time:.2f}s ({total_time/60:.1f} min)")
+                print(f"[DEBUG] Response length: {len(response)} chars")
                 
                 return response.strip()
             
