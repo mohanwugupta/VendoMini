@@ -218,7 +218,6 @@ class ExperimentRunner:
 
                 # Agent makes decision
                 print(f"[DEBUG] Step {step}: Calling agent.get_action_and_prediction()...")
-                import time
                 action_start = time.time()
                 action, prediction = agent.get_action_and_prediction(observation, available_tools)
                 action_time = time.time() - action_start
