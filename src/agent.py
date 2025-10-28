@@ -130,16 +130,37 @@ class LLMAgent:
                 # Special handling for Llama models (fix vocab_file Path bug)
                 model_path_str = str(model_to_load)
                 
-                # For Llama models, directly instantiate to avoid Path object bug
+                # For Llama models, check for both tokenizer formats
                 if 'llama' in self.model_name.lower():
-                    from transformers import LlamaTokenizer
-                    vocab_file = os.path.join(model_path_str, 'tokenizer.model')
-                    print(f"[*] Using LlamaTokenizer directly with vocab_file: {vocab_file}")
-                    # Directly instantiate with string path to avoid Path object conversion
-                    tokenizer = LlamaTokenizer(
-                        vocab_file=str(vocab_file),  # Force string
-                        legacy=True
-                    )
+                    # Check for tokenizer.model (SentencePiece) or tokenizer.json (fast tokenizer)
+                    vocab_file_sp = os.path.join(model_path_str, 'tokenizer.model')
+                    vocab_file_fast = os.path.join(model_path_str, 'tokenizer.json')
+                    
+                    if os.path.exists(vocab_file_sp):
+                        # Use slow tokenizer with SentencePiece
+                        from transformers import LlamaTokenizer
+                        print(f"[*] Using LlamaTokenizer (slow) with vocab_file: {vocab_file_sp}")
+                        tokenizer = LlamaTokenizer(
+                            vocab_file=str(vocab_file_sp),  # Force string
+                            legacy=True
+                        )
+                    elif os.path.exists(vocab_file_fast):
+                        # Use fast tokenizer
+                        print(f"[*] Using AutoTokenizer (fast) for Llama with tokenizer.json")
+                        tokenizer = AutoTokenizer.from_pretrained(
+                            model_path_str,
+                            trust_remote_code=True,
+                            local_files_only=True,
+                            use_fast=True
+                        )
+                    else:
+                        # Fallback to AutoTokenizer
+                        print(f"[*] Neither tokenizer.model nor tokenizer.json found, using AutoTokenizer")
+                        tokenizer = AutoTokenizer.from_pretrained(
+                            model_path_str,
+                            trust_remote_code=True,
+                            local_files_only=True
+                        )
                 else:
                     tokenizer = AutoTokenizer.from_pretrained(
                         model_path_str,
