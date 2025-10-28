@@ -64,7 +64,7 @@ def main():
     print("\n🔐 Authenticating with HuggingFace...")
     try:
         result = subprocess.run([
-            "huggingface-cli", "login", "--token", "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"
+            "huggingface-cli", "login", "--token", "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"
         ], capture_output=True, text=True, check=True)
         print("✅ Successfully authenticated with HuggingFace")
     except subprocess.CalledProcessError as e:
