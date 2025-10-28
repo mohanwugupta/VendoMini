@@ -217,10 +217,10 @@ class LLMAgent:
                         gpu_memory.append(mem / (1024**3))  # Convert to GB
                         print(f"[*] GPU {i}: {gpu_memory[-1]:.2f} GB total")
                     
-                    # Use 85% of available memory to leave more headroom for inference
-                    # Large models need extra memory for activations and KV cache
-                    max_memory = {i: f"{int(gpu_memory[i] * 0.85)}GB" for i in range(num_gpus)}
-                    max_memory["cpu"] = "120GB"  # Allow CPU offloading for layers that don't fit on GPU
+                    # Use 90% of available memory for model weights
+                    # Keep 10% for activations, KV cache, and other runtime memory
+                    max_memory = {i: f"{int(gpu_memory[i] * 0.90)}GB" for i in range(num_gpus)}
+                    max_memory["cpu"] = "150GB"  # Allow CPU offloading for layers that don't fit on GPU
                     print(f"[*] Max memory allocation: {max_memory}")
                 else:
                     max_memory = None
@@ -234,13 +234,14 @@ class LLMAgent:
                     "local_files_only": True,  # Don't try to download
                 }
                 
-                # For multi-GPU or large models, use auto device mapping with max_memory and offloading
+                # For multi-GPU or large models, use auto device mapping with max_memory
+                # NOTE: Removed offload_folder and offload_state_dict as they cause hanging
+                # during model initialization (meta device issues)
                 if max_memory:
                     model_kwargs["device_map"] = "auto"  # Optimally distribute across GPUs and CPU
                     model_kwargs["max_memory"] = max_memory
-                    model_kwargs["offload_folder"] = "./offload"  # Disk offload for very large models
-                    model_kwargs["offload_state_dict"] = True  # Reduces peak memory during loading
-                    print(f"[*] Using auto device mapping with max_memory constraints and CPU offloading")
+                    print(f"[*] Using auto device mapping with max_memory constraints")
+                    print(f"[*] CPU offloading will be used automatically if model doesn't fit on GPUs")
                 else:
                     model_kwargs["device_map"] = "auto"
                     print(f"[*] Using auto device mapping")

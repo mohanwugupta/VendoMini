@@ -1,33 +1,112 @@
-# Generation Config Hang Fix
+# Model Initialization Hang Fix
 
 ## Problem Identified
 **Date**: Oct 28, 2024  
-**Issue**: Model loading hangs after checkpoint shards complete (100%)
+**Issue**: Model loading hangs inside `AutoModelForCausalLM.from_pretrained()` call after checkpoint shards complete
 
 ### Symptoms
-- Checkpoint loading completes successfully (30/30 shards in ~60s)
+- Checkpoint loading completes successfully (30/30 shards in ~2 minutes)
+- Warning appears: "Some parameters are on the meta device because they were offloaded to the cpu"
 - Warning appears: "The following generation flags are not valid and may be ignored: ['temperature', 'top_p']"
-- Execution stops completely - never reaches "Model loaded successfully!" message
-- No error messages, just silent hang
+- Execution stops completely **inside** the `from_pretrained()` call - never returns
+- Debug message `[DEBUG] About to call AutoModelForCausalLM.from_pretrained()...` appears
+- Debug message `[DEBUG] AutoModelForCausalLM.from_pretrained() returned!` **NEVER** appears
+- No error messages, just silent hang during model initialization
 
 ### Root Cause
-**Line 268-270 in `src/agent.py`**:
+
+**TWO ISSUES FOUND**:
+
+#### Issue 1: Aggressive Disk Offloading Parameters
+**Lines 240-243 in `src/agent.py`** (BEFORE FIX):
+```python
+model_kwargs["offload_folder"] = "./offload"  # Disk offload for very large models
+model_kwargs["offload_state_dict"] = True  # Reduces peak memory during loading
+```
+
+**The problem**:
+1. `offload_state_dict=True` causes model initialization to hang
+2. Creates "meta device" parameters that aren't properly initialized
+3. Model tries to finalize initialization with parameters on meta device and gets stuck in infinite wait
+4. The warning "Some parameters are on the meta device because they were offloaded to the cpu" indicates incomplete initialization
+
+#### Issue 2: GenerationConfig Loading After Model
+**Lines 268-270 in `src/agent.py`** (BEFORE FIX):
 ```python
 from transformers import GenerationConfig
 model.generation_config = GenerationConfig.from_pretrained(model_to_load, local_files_only=True)
 ```
 
 **The problem**:
-1. `GenerationConfig.from_pretrained()` was being called **after** model loading
-2. Even with `local_files_only=True`, this could trigger:
-   - Network access attempts for config validation
-   - Heavy initialization that hangs with CPU-offloaded models
-   - Conflicts with the "meta device" warning about CPU offloading
-3. The warning about invalid generation flags suggests transformers was already trying to process configs during model load, causing conflicts
+1. `GenerationConfig.from_pretrained()` tries to access model parameters that may still be on meta device
+2. Even with `local_files_only=True`, can trigger network calls or heavy initialization
+3. Conflicts with the model's auto-generated config during loading
+4. Warning about invalid generation flags suggests config conflicts
 
 ## Solution
 
-### Code Changes (src/agent.py)
+### Fix 1: Remove Aggressive Offloading Parameters (src/agent.py, Lines 238-245)
+
+**Before**:
+```python
+# For multi-GPU or large models, use auto device mapping with max_memory and offloading
+if max_memory:
+    model_kwargs["device_map"] = "auto"  # Optimally distribute across GPUs and CPU
+    model_kwargs["max_memory"] = max_memory
+    model_kwargs["offload_folder"] = "./offload"  # Disk offload for very large models
+    model_kwargs["offload_state_dict"] = True  # Reduces peak memory during loading
+    print(f"[*] Using auto device mapping with max_memory constraints and CPU offloading")
+else:
+    model_kwargs["device_map"] = "auto"
+    print(f"[*] Using auto device mapping")
+```
+
+**After**:
+```python
+# For multi-GPU or large models, use auto device mapping with max_memory
+# NOTE: Removed offload_folder and offload_state_dict as they cause hanging
+# during model initialization (meta device issues)
+if max_memory:
+    model_kwargs["device_map"] = "auto"  # Optimally distribute across GPUs and CPU
+    model_kwargs["max_memory"] = max_memory
+    print(f"[*] Using auto device mapping with max_memory constraints")
+    print(f"[*] CPU offloading will be used automatically if model doesn't fit on GPUs")
+else:
+    model_kwargs["device_map"] = "auto"
+    print(f"[*] Using auto device mapping")
+```
+
+**Why this works**:
+- `device_map="auto"` with `max_memory` still enables CPU offloading automatically
+- But without `offload_state_dict=True`, initialization doesn't create meta device parameters
+- Simpler offloading strategy avoids the initialization deadlock
+- Model components are properly initialized on their target devices instead of meta device
+
+### Fix 2: Increase GPU Memory Allocation (src/agent.py, Lines 220-224)
+
+**Before**:
+```python
+# Use 85% of available memory to leave more headroom for inference
+# Large models need extra memory for activations and KV cache
+max_memory = {i: f"{int(gpu_memory[i] * 0.85)}GB" for i in range(num_gpus)}
+max_memory["cpu"] = "120GB"  # Allow CPU offloading for layers that don't fit on GPU
+```
+
+**After**:
+```python
+# Use 90% of available memory for model weights
+# Keep 10% for activations, KV cache, and other runtime memory
+max_memory = {i: f"{int(gpu_memory[i] * 0.90)}GB" for i in range(num_gpus)}
+max_memory["cpu"] = "150GB"  # Allow CPU offloading for layers that don't fit on GPU
+```
+
+**Why this helps**:
+- 79GB GPUs have plenty of headroom - 90% = 71GB per GPU
+- More GPU allocation means less CPU offloading needed
+- Reduces complexity of device mapping, fewer cross-device dependencies
+- 10% (8GB) still plenty for activations and KV cache
+
+### Fix 3: Direct Generation Config Setting (src/agent.py, Lines 268-284)
 
 **Before** (Lines 268-284):
 ```python
