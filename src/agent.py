@@ -302,13 +302,16 @@ class LLMAgent:
                         tokenizer.pad_token_id = tokenizer.eos_token_id
                 
                 # Test inference with a small prompt to ensure model works
-                # SKIP for large models with CPU offloading - it's too slow
-                # Check if model has CPU-offloaded layers
+                # SKIP for models with 4+ GPUs - distributed models can hang during test
+                # Also check if model has CPU-offloaded layers
                 has_cpu_offload = False
                 if hasattr(model, 'hf_device_map'):
                     has_cpu_offload = 'cpu' in str(model.hf_device_map.values())
                 
-                if has_cpu_offload:
+                if num_gpus >= 4:
+                    print(f"[*] Skipping test inference (multi-GPU setup with {num_gpus} GPUs)")
+                    print(f"[*] Model ready for inference")
+                elif has_cpu_offload:
                     print(f"[*] Skipping test inference (model has CPU-offloaded layers)")
                     print(f"[*] Model ready for inference (will be slower due to CPU offloading)")
                 else:
