@@ -228,8 +228,7 @@ class LLMAgent:
                 # Load model with appropriate settings for large models
                 print(f"[*] Loading model weights...")
                 
-                # Estimate model size from name to decide on quantization
-                # 70B models are ~140GB in bfloat16, won't fit on 2x40GB GPUs without quantization
+                # Estimate model size from name for informational purposes
                 model_size_b = 0
                 if 'llama-3.3-70b' in self.model_name.lower() or 'llama-70b' in self.model_name.lower():
                     model_size_b = 70
@@ -240,42 +239,36 @@ class LLMAgent:
                 elif '32b' in self.model_name.lower():
                     model_size_b = 32
                 
-                # Calculate if model will fit on available GPU memory
+                # Calculate estimated model size
                 # bfloat16 uses 2 bytes per parameter
                 estimated_size_gb = model_size_b * 2  # Rough estimate in GB
                 total_gpu_memory = sum(gpu_memory) if num_gpus > 0 else 0
                 
-                print(f"[*] Estimated model size: ~{model_size_b}B parameters (~{estimated_size_gb}GB in bfloat16)")
+                if model_size_b > 0:
+                    print(f"[*] Estimated model size: ~{model_size_b}B parameters (~{estimated_size_gb}GB in bfloat16)")
                 print(f"[*] Total GPU memory available: {total_gpu_memory:.2f}GB across {num_gpus} GPUs")
                 
-                # Use 8-bit quantization for models that don't fit
-                use_8bit = False
-                if estimated_size_gb > total_gpu_memory * 0.85:  # Need headroom for inference
-                    print(f"[WARNING] Model too large for available GPU memory")
-                    print(f"[*] Enabling 8-bit quantization to fit model on GPUs")
-                    use_8bit = True
+                # Warn if model might be tight on memory
+                if estimated_size_gb > total_gpu_memory * 0.85:
+                    print(f"[WARNING] Model is large relative to available GPU memory")
+                    print(f"[WARNING] Model needs: ~{estimated_size_gb}GB, Available: {total_gpu_memory:.2f}GB")
+                    print(f"[WARNING] Some CPU offloading may occur, which can slow down inference")
                 
                 model_kwargs = {
+                    "torch_dtype": dtype,
                     "low_cpu_mem_usage": True,
                     "trust_remote_code": True,
                     "local_files_only": True,  # Don't try to download
                 }
                 
-                if use_8bit:
-                    # Use 8-bit quantization - requires bitsandbytes
-                    model_kwargs["load_in_8bit"] = True
+                # For multi-GPU or large models, use auto device mapping with max_memory
+                if max_memory:
                     model_kwargs["device_map"] = "auto"
-                    print(f"[*] Using 8-bit quantization with auto device mapping")
+                    model_kwargs["max_memory"] = max_memory
+                    print(f"[*] Using auto device mapping with max_memory constraints")
                 else:
-                    model_kwargs["torch_dtype"] = dtype
-                    # For multi-GPU or large models, use auto device mapping with max_memory
-                    if max_memory:
-                        model_kwargs["device_map"] = "auto"
-                        model_kwargs["max_memory"] = max_memory
-                        print(f"[*] Using auto device mapping with max_memory constraints")
-                    else:
-                        model_kwargs["device_map"] = "auto"
-                        print(f"[*] Using auto device mapping")
+                    model_kwargs["device_map"] = "auto"
+                    print(f"[*] Using auto device mapping")
                 
                 print(f"[DEBUG] About to call AutoModelForCausalLM.from_pretrained()...")
                 print(f"[DEBUG] Model: {model_to_load}")
