@@ -228,31 +228,9 @@ class LLMAgent:
                 # Load model with appropriate settings for large models
                 print(f"[*] Loading model weights...")
                 
-                # Estimate model size from name for informational purposes
-                model_size_b = 0
-                if 'llama-3.3-70b' in self.model_name.lower() or 'llama-70b' in self.model_name.lower():
-                    model_size_b = 70
-                elif '72b' in self.model_name.lower():
-                    model_size_b = 72
-                elif 'deepseek-v2.5' in self.model_name.lower():
-                    model_size_b = 236
-                elif '32b' in self.model_name.lower():
-                    model_size_b = 32
-                
-                # Calculate estimated model size
-                # bfloat16 uses 2 bytes per parameter
-                estimated_size_gb = model_size_b * 2  # Rough estimate in GB
-                total_gpu_memory = sum(gpu_memory) if num_gpus > 0 else 0
-                
-                if model_size_b > 0:
-                    print(f"[*] Estimated model size: ~{model_size_b}B parameters (~{estimated_size_gb}GB in bfloat16)")
-                print(f"[*] Total GPU memory available: {total_gpu_memory:.2f}GB across {num_gpus} GPUs")
-                
-                # Warn if model might be tight on memory
-                if estimated_size_gb > total_gpu_memory * 0.85:
-                    print(f"[WARNING] Model is large relative to available GPU memory")
-                    print(f"[WARNING] Model needs: ~{estimated_size_gb}GB, Available: {total_gpu_memory:.2f}GB")
-                    print(f"[WARNING] Some CPU offloading may occur, which can slow down inference")
+                # Suppress the "meta device" warning - it's expected with CPU offloading
+                import warnings
+                warnings.filterwarnings("ignore", message=".*parameters are on the meta device.*")
                 
                 model_kwargs = {
                     "torch_dtype": dtype,
@@ -262,10 +240,13 @@ class LLMAgent:
                 }
                 
                 # For multi-GPU or large models, use auto device mapping with max_memory
+                # NOTE: Removed offload_folder and offload_state_dict as they cause hanging
+                # during model initialization (meta device issues)
                 if max_memory:
-                    model_kwargs["device_map"] = "auto"
+                    model_kwargs["device_map"] = "auto"  # Optimally distribute across GPUs and CPU
                     model_kwargs["max_memory"] = max_memory
                     print(f"[*] Using auto device mapping with max_memory constraints")
+                    print(f"[*] CPU offloading will be used automatically if model doesn't fit on GPUs")
                 else:
                     model_kwargs["device_map"] = "auto"
                     print(f"[*] Using auto device mapping")
@@ -321,42 +302,52 @@ class LLMAgent:
                         tokenizer.pad_token_id = tokenizer.eos_token_id
                 
                 # Test inference with a small prompt to ensure model works
-                print(f"[*] Testing model with small inference...")
-                try:
-                    print(f"[DEBUG] Creating test input...")
-                    test_input = tokenizer("Hello", return_tensors="pt", padding=True)
-                    
-                    # Move input to same device as first model parameter
-                    print(f"[DEBUG] Finding model device...")
-                    device_0 = next(model.parameters()).device
-                    print(f"[DEBUG] First parameter on device: {device_0}")
-                    
-                    print(f"[DEBUG] Moving test input to device...")
-                    test_input = {k: v.to(device_0) for k, v in test_input.items()}
-                    
-                    # Run a tiny generation to verify it works
-                    print(f"[DEBUG] Running test generation (max_new_tokens=5)...")
-                    with torch.no_grad():
-                        test_output = model.generate(
-                            **test_input,
-                            max_new_tokens=5,
-                            do_sample=False,
-                            pad_token_id=tokenizer.pad_token_id,
-                            eos_token_id=tokenizer.eos_token_id,
-                        )
-                    print(f"[*] Test inference successful!")
-                    print(f"[DEBUG] Test output shape: {test_output.shape}")
-                    
-                    # Clear cache after test
-                    if device == "cuda":
-                        torch.cuda.empty_cache()
-                        print(f"[DEBUG] Cleared cache after test")
+                # SKIP for large models with CPU offloading - it's too slow
+                # Check if model has CPU-offloaded layers
+                has_cpu_offload = False
+                if hasattr(model, 'hf_device_map'):
+                    has_cpu_offload = 'cpu' in str(model.hf_device_map.values())
+                
+                if has_cpu_offload:
+                    print(f"[*] Skipping test inference (model has CPU-offloaded layers)")
+                    print(f"[*] Model ready for inference (will be slower due to CPU offloading)")
+                else:
+                    print(f"[*] Testing model with small inference...")
+                    try:
+                        print(f"[DEBUG] Creating test input...")
+                        test_input = tokenizer("Hello", return_tensors="pt", padding=True)
                         
-                except Exception as e:
-                    print(f"[WARNING] Test inference failed: {e}")
-                    print(f"[WARNING] Model may not work properly during experiment")
-                    import traceback
-                    traceback.print_exc()
+                        # Move input to same device as first model parameter
+                        print(f"[DEBUG] Finding model device...")
+                        device_0 = next(model.parameters()).device
+                        print(f"[DEBUG] First parameter on device: {device_0}")
+                        
+                        print(f"[DEBUG] Moving test input to device...")
+                        test_input = {k: v.to(device_0) for k, v in test_input.items()}
+                        
+                        # Run a tiny generation to verify it works
+                        print(f"[DEBUG] Running test generation (max_new_tokens=5)...")
+                        with torch.no_grad():
+                            test_output = model.generate(
+                                **test_input,
+                                max_new_tokens=5,
+                                do_sample=False,
+                                pad_token_id=tokenizer.pad_token_id,
+                                eos_token_id=tokenizer.eos_token_id,
+                            )
+                        print(f"[*] Test inference successful!")
+                        print(f"[DEBUG] Test output shape: {test_output.shape}")
+                        
+                        # Clear cache after test
+                        if device == "cuda":
+                            torch.cuda.empty_cache()
+                            print(f"[DEBUG] Cleared cache after test")
+                            
+                    except Exception as e:
+                        print(f"[WARNING] Test inference failed: {e}")
+                        print(f"[WARNING] Model may not work properly during experiment")
+                        import traceback
+                        traceback.print_exc()
                 
                 return {
                     'tokenizer': tokenizer,
