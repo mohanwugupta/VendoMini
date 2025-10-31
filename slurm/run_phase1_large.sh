@@ -2,9 +2,9 @@
 #SBATCH --job-name=vendomini-phase1-large
 #SBATCH --array=0-659         # 11 p_shock × 2 pe_mag × 2 pred_mode × 3 models × 5 reps = 660 tasks
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=8     # For parallel PDF processing
-#SBATCH --mem=64G
-#SBATCH --gres=gpu:2          # Request 2 GPUs for 70B+ models (160GB total VRAM)
+#SBATCH --cpus-per-task=1     # For parallel PDF processing
+#SBATCH --mem=128G
+#SBATCH --gres=gpu:1         # Request 1 GPU for 30B models (160GB total VRAM)
 #SBATCH --constraint=gpu80
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
