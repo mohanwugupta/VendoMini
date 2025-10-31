@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase1-small
-#SBATCH --array=0-439         # 11 p_shock × 2 pe_mag × 2 pred_mode × 2 models × 5 reps = 440 tasks
+#SBATCH --array=0-659         # 11 p_shock × 2 pe_mag × 2 pred_mode × 3 models × 5 reps = 660 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=2     # Fewer CPUs needed for small models
 #SBATCH --mem-per-cpu=24G     # 48GB total RAM (enough for 7B-20B models)
@@ -14,7 +14,7 @@
 # Parallelizes across all parameter combinations via SLURM array jobs
 
 echo "🚀 Starting VendoMini Phase 1 Array Job (SMALL MODELS)"
-echo "Models: deepseek-llm-7b-chat, gpt-oss-20b"
+echo "Models: deepseek-llm-7b-chat, Llama-3.1-8B-Instruct, OLMo-2-1124-13B-Instruct"
 echo "Array Job ID: $SLURM_ARRAY_JOB_ID"
 echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Node: $SLURMD_NODENAME"

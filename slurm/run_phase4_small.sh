@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase4-small
-#SBATCH --array=0-219
+#SBATCH --array=0-494        # 11 p_shock × 3 pe_mag × 3 models × 5 reps = 495 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem-per-cpu=24G     # 48GB total RAM

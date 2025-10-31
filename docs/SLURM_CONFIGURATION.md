@@ -52,10 +52,10 @@ All SLURM scripts have been updated to run experiments with **all 6 models** acr
 ## Models Being Tested
 
 Based on `phase4_model_arch.yaml`, the 6 models are:
-1. `openai/gpt-oss-20b`
+1. `Qwen/Qwen3-30B-A3B-Instruct-2507`
 2. `deepseek-ai/DeepSeek-V2.5`
-3. `meta-llama/Llama-3.3-70B-Instruct`
-4. `Qwen/Qwen2.5-72B-Instruct`
+3. `meta-llama/Llama-3.1-8B-Instruct`
+4. `allenai/OLMo-2-1124-13B-Instruct`
 5. `Qwen/Qwen3-32B`
 6. `deepseek-ai/deepseek-llm-7b-chat`
 

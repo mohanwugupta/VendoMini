@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase2-small
-#SBATCH --array=825-1649
+#SBATCH --array=825-1649      # Part 2 of 3: 825 tasks (11×5×3×3×5 = 2475 total, split to stay under 1000)
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem-per-cpu=24G     # 48GB total RAM

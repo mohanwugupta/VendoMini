@@ -4,10 +4,10 @@
 
 Your VendoMini experiment uses 6 different language models ranging from 7B to 236B parameters:
 
-1. `openai/gpt-oss-20b` (20B params) ≈ 40GB
+1. `Qwen/Qwen3-30B-A3B-Instruct-2507` (30B params) ≈ 60GB
 2. `deepseek-ai/DeepSeek-V2.5` (236B) ≈ 500GB  
-3. `meta-llama/Llama-3.3-70B-Instruct` (70B) ≈ 140GB
-4. `Qwen/Qwen2.5-72B-Instruct` (72B) ≈ 144GB
+3. `meta-llama/Llama-3.1-8B-Instruct` (8B) ≈ 16GB
+4. `allenai/OLMo-2-1124-13B-Instruct` (13B) ≈ 26GB
 5. `Qwen/Qwen3-32B` (32B) ≈ 64GB
 6. `deepseek-ai/deepseek-llm-7b-chat` (7B) ≈ 14GB
 

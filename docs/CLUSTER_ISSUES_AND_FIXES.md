@@ -74,10 +74,10 @@ os.environ['HF_HOME'] = '/scratch/gpfs/JORDANAT/mg9965/VendoMini/models'
 os.environ['TRANSFORMERS_CACHE'] = '/scratch/gpfs/JORDANAT/mg9965/VendoMini/models'
 
 models = [
-    'openai/gpt-oss-20b',
+    'Qwen/Qwen3-30B-A3B-Instruct-2507',
     'deepseek-ai/DeepSeek-V2.5',
-    'meta-llama/Llama-3.3-70B-Instruct',
-    'Qwen/Qwen2.5-72B-Instruct',
+    'meta-llama/Llama-3.1-8B-Instruct',
+    'allenai/OLMo-2-1124-13B-Instruct',
     'Qwen/Qwen3-32B',
     'deepseek-ai/deepseek-llm-7b-chat'
 ]
@@ -186,7 +186,7 @@ agent:
 **File:** `configs/phases/phase1_core_hypothesis.yaml`
 ```yaml
 grid:
-  model.name: [openai/gpt-oss-20b, ...]  # 6 models in grid
+  model.name: [Qwen/Qwen3-30B-A3B-Instruct-2507, ...]  # 6 models in grid
 ```
 
 If the grid expansion doesn't properly override the nested `agent.model.name`, you might get:

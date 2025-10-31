@@ -9,7 +9,7 @@ grid:
   pe_induction.pe_type_mix: [realistic, temporal_only, quantity_only, causal_only, uniform]
   pe_induction.p_shock: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
   pe_induction.observability: [full, delayed, hidden]
-  agent.model.name: [openai/gpt-oss-20b, deepseek-ai/DeepSeek-V2.5, meta-llama/Llama-3.3-70B-Instruct, Qwen/Qwen2.5-72B-Instruct, Qwen/Qwen3-32B, deepseek-ai/deepseek-llm-7b-chat]
+  agent.model.name: [Qwen/Qwen3-30B-A3B-Instruct-2507, deepseek-ai/DeepSeek-V2.5, meta-llama/Llama-3.1-8B-Instruct, allenai/OLMo-2-1124-13B-Instruct, Qwen/Qwen3-32B, deepseek-ai/deepseek-llm-7b-chat]
 
 fixed:
   simulation.max_steps: 1000

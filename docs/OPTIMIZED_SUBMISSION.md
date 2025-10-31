@@ -8,14 +8,14 @@ VendoMini now uses **separate job configurations** for small and large models to
 
 ### Small Models (1 GPU Required)
 - **deepseek-ai/deepseek-llm-7b-chat** (7B params) ≈ 14GB VRAM
-- **openai/gpt-oss-20b** (20B params) ≈ 40GB VRAM
+- **meta-llama/Llama-3.1-8B-Instruct** (8B params) ≈ 16GB VRAM
+- **allenai/OLMo-2-1124-13B-Instruct** (13B params) ≈ 26GB VRAM
 
 **Resources**: 1 GPU, 48GB RAM, 2 CPUs, ~2 hour runtime
 
 ### Large Models (2 GPUs Required)
+- **Qwen/Qwen3-30B-A3B-Instruct-2507** (30B params) ≈ 60GB VRAM
 - **Qwen/Qwen3-32B** (32B params) ≈ 64GB VRAM
-- **meta-llama/Llama-3.3-70B-Instruct** (70B params) ≈ 140GB VRAM
-- **Qwen/Qwen2.5-72B-Instruct** (72B params) ≈ 144GB VRAM
 - **deepseek-ai/DeepSeek-V2.5** (236B params) ≈ 500GB VRAM
 
 **Resources**: 2 GPUs, 128GB RAM, 4 CPUs, ~6 hour runtime (includes CPU offloading)

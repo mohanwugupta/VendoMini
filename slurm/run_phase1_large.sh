@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase1-large
-#SBATCH --array=0-879         # 11 p_shock × 2 pe_mag × 2 pred_mode × 4 models × 5 reps = 880 tasks
+#SBATCH --array=0-659         # 11 p_shock × 2 pe_mag × 2 pred_mode × 3 models × 5 reps = 660 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8     # For parallel PDF processing
 #SBATCH --mem=64G
@@ -15,7 +15,7 @@
 # Parallelizes across all parameter combinations via SLURM array jobs
 
 echo "🚀 Starting VendoMini Phase 1 Array Job (LARGE MODELS)"
-echo "Models: Qwen3-32B, Llama-3.3-70B, Qwen2.5-72B, DeepSeek-V2.5"
+echo "Models: Qwen3-30B-A3B-Instruct-2507, Qwen3-32B, DeepSeek-V2.5"
 echo "Array Job ID: $SLURM_ARRAY_JOB_ID"
 echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Node: $SLURMD_NODENAME"
