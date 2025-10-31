@@ -217,11 +217,14 @@ class LLMAgent:
                         gpu_memory.append(mem / (1024**3))  # Convert to GB
                         print(f"[*] GPU {i}: {gpu_memory[-1]:.2f} GB total")
                     
-                    # Use 90% of available memory for model weights
-                    # Keep 10% for activations, KV cache, and other runtime memory
-                    max_memory = {i: f"{int(gpu_memory[i] * 0.90)}GB" for i in range(num_gpus)}
-                    max_memory["cpu"] = "150GB"  # Allow CPU offloading for layers that don't fit on GPU
-                    print(f"[*] Max memory allocation: {max_memory}")
+                    if num_gpus == 1:
+                        # Single GPU: Use 95% of available memory (more aggressive since no offloading)
+                        max_memory = {0: f"{int(gpu_memory[0] * 0.95)}GB"}
+                        print(f"[*] Single GPU max memory: {max_memory}")
+                    else:
+                        # Multi-GPU: Use 90% per GPU, no CPU offloading
+                        max_memory = {i: f"{int(gpu_memory[i] * 0.90)}GB" for i in range(num_gpus)}
+                        print(f"[*] Multi-GPU max memory (no CPU): {max_memory}")
                 else:
                     max_memory = None
                 
@@ -239,17 +242,23 @@ class LLMAgent:
                     "local_files_only": True,  # Don't try to download
                 }
                 
-                # For multi-GPU or large models, use auto device mapping with max_memory
-                # NOTE: Removed offload_folder and offload_state_dict as they cause hanging
-                # during model initialization (meta device issues)
-                if max_memory:
-                    model_kwargs["device_map"] = "auto"  # Optimally distribute across GPUs and CPU
-                    model_kwargs["max_memory"] = max_memory
-                    print(f"[*] Using auto device mapping with max_memory constraints")
-                    print(f"[*] CPU offloading will be used automatically if model doesn't fit on GPUs")
+                # For single GPU setups, force entire model on GPU 0 without offloading
+                # For multi-GPU setups, still use auto device mapping but prevent CPU offloading
+                if num_gpus == 1:
+                    # Single GPU: Load entire model on GPU 0, no offloading allowed
+                    model_kwargs["device_map"] = {"": 0}  # Force all layers to GPU 0
+                    if max_memory:
+                        model_kwargs["max_memory"] = max_memory
+                    print(f"[*] Single GPU detected - loading ENTIRE model on GPU 0 (no offloading)")
+                elif num_gpus > 1:
+                    # Multi-GPU: Allow distribution across GPUs but prevent CPU offloading
+                    model_kwargs["device_map"] = "auto"
+                    if max_memory:
+                        model_kwargs["max_memory"] = max_memory
+                    print(f"[*] Multi-GPU setup - distributing across {num_gpus} GPUs (no CPU offloading)")
                 else:
                     model_kwargs["device_map"] = "auto"
-                    print(f"[*] Using auto device mapping")
+                    print(f"[*] CPU mode - using auto device mapping")
                 
                 print(f"[DEBUG] About to call AutoModelForCausalLM.from_pretrained()...")
                 print(f"[DEBUG] Model: {model_to_load}")
@@ -303,7 +312,7 @@ class LLMAgent:
                 
                 # Test inference with a small prompt to ensure model works
                 # SKIP for models with 4+ GPUs - distributed models can hang during test
-                # Also check if model has CPU-offloaded layers
+                # For single GPU, we should NOT have CPU offloading, so always test
                 has_cpu_offload = False
                 if hasattr(model, 'hf_device_map'):
                     has_cpu_offload = 'cpu' in str(model.hf_device_map.values())
@@ -312,7 +321,7 @@ class LLMAgent:
                     print(f"[*] Skipping test inference (multi-GPU setup with {num_gpus} GPUs)")
                     print(f"[*] Model ready for inference")
                 elif has_cpu_offload:
-                    print(f"[*] Skipping test inference (model has CPU-offloaded layers)")
+                    print(f"[*] WARNING: Model has CPU-offloaded layers despite single GPU setup!")
                     print(f"[*] Model ready for inference (will be slower due to CPU offloading)")
                 else:
                     print(f"[*] Testing model with small inference...")
