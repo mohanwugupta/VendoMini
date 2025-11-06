@@ -26,9 +26,9 @@ einops>=0.7.0
 
 # Optional: Flash Attention 2 for faster inference (requires Ampere+ GPUs)
 # Install with: pip install flash-attn --no-build-isolation
-# flash-attn>=2.3.0
+flash-attn>=2.3.0
 
 # Optional: vLLM for optimized multi-GPU inference (much faster than standard transformers)
 # Enable with: export VENDOMINI_USE_VLLM=1
 # Install with: pip install vllm>=0.2.0
-# vllm>=0.2.0
+vllm>=0.2.0
