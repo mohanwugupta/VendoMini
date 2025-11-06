@@ -71,6 +71,9 @@ class LLMAgent:
     
     def _initialize_client(self):
         """Initialize the LLM client."""
+        # Check if vLLM should be used (via environment variable)
+        use_vllm = os.getenv('VENDOMINI_USE_VLLM', '').lower() in ['1', 'true', 'yes']
+        
         if self.provider == 'openai':
             try:
                 import openai
@@ -90,6 +93,15 @@ class LLMAgent:
             except ImportError:
                 return None
         elif self.provider == 'huggingface':
+            # Try vLLM first if enabled, fall back to standard transformers
+            if use_vllm:
+                try:
+                    return self._initialize_vllm()
+                except Exception as e:
+                    print(f"[WARNING] vLLM initialization failed: {e}")
+                    print(f"[*] Falling back to standard HuggingFace Transformers")
+            
+            # Standard HuggingFace Transformers path
             try:
                 from transformers import AutoTokenizer, AutoModelForCausalLM
                 import torch
@@ -235,11 +247,29 @@ class LLMAgent:
                 import warnings
                 warnings.filterwarnings("ignore", message=".*parameters are on the meta device.*")
                 
+                # Try to use Flash Attention 2 for faster inference (requires flash-attn package)
+                attn_implementation = "eager"  # Default fallback
+                try:
+                    import flash_attn
+                    # Check if GPU supports Flash Attention (compute capability >= 8.0 for Ampere+)
+                    if device == "cuda" and hasattr(torch.cuda, 'get_device_capability'):
+                        compute_capability = torch.cuda.get_device_capability(0)
+                        if compute_capability[0] >= 8:  # Ampere (A100, A6000) or newer
+                            attn_implementation = "flash_attention_2"
+                            print(f"[*] Using Flash Attention 2 (GPU compute capability: {compute_capability})")
+                        else:
+                            print(f"[*] Flash Attention available but GPU too old (compute capability: {compute_capability})")
+                            print(f"[*] Using eager attention (slower)")
+                except ImportError:
+                    print(f"[*] Flash Attention not installed, using eager attention (slower)")
+                    print(f"[*] To enable Flash Attention: pip install flash-attn --no-build-isolation")
+                
                 model_kwargs = {
                     "torch_dtype": dtype,
                     "low_cpu_mem_usage": True,
                     "trust_remote_code": True,
                     "local_files_only": True,  # Don't try to download
+                    "attn_implementation": attn_implementation,  # Use Flash Attention if available
                 }
                 
                 # For single GPU setups, force entire model on GPU 0 without offloading
@@ -376,6 +406,54 @@ class LLMAgent:
                 return None
         return None
     
+    def _initialize_vllm(self):
+        """Initialize vLLM for optimized inference (faster than standard transformers)."""
+        from vllm import LLM, SamplingParams
+        
+        print(f"[*] Loading model with vLLM (optimized inference)")
+        print(f"[*] Model: {self.model_name}")
+        
+        # FORCE OFFLINE MODE
+        os.environ['HF_HUB_OFFLINE'] = '1'
+        os.environ['TRANSFORMERS_OFFLINE'] = '1'
+        
+        # Find model path
+        hf_home = os.getenv('HF_HOME')
+        model_to_load = self.model_name
+        
+        if hf_home:
+            simple_model_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
+            if os.path.exists(simple_model_dir):
+                print(f"[*] Found model in: {simple_model_dir}")
+                model_to_load = simple_model_dir
+        
+        # Initialize vLLM
+        # vLLM automatically uses all available GPUs and optimizations
+        llm = LLM(
+            model=model_to_load,
+            trust_remote_code=True,
+            download_dir=hf_home,
+            dtype="bfloat16",  # Use bfloat16 for better performance
+            max_model_len=4096,  # Adjust based on your needs
+            gpu_memory_utilization=0.90,  # Use 90% of GPU memory
+            tensor_parallel_size=os.getenv('CUDA_VISIBLE_DEVICES', '0').count(',') + 1,  # Auto-detect GPUs
+        )
+        
+        # Create sampling params that match our config
+        sampling_params = SamplingParams(
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            top_p=0.95,
+        )
+        
+        print(f"[*] vLLM initialized successfully")
+        
+        return {
+            'llm': llm,
+            'sampling_params': sampling_params,
+            'backend': 'vllm'
+        }
+    
     def get_action_and_prediction(
         self, 
         observation: Dict[str, Any],
@@ -429,6 +507,20 @@ class LLMAgent:
         if self.client is None:
             # No client available, return dummy response
             return "No LLM client configured"
+        
+        # Check if using vLLM backend
+        if isinstance(self.client, dict) and self.client.get('backend') == 'vllm':
+            try:
+                llm = self.client['llm']
+                sampling_params = self.client['sampling_params']
+                
+                print(f"[DEBUG] Running vLLM inference...")
+                outputs = llm.generate([prompt], sampling_params)
+                response = outputs[0].outputs[0].text
+                print(f"[DEBUG] vLLM inference complete")
+                return response.strip()
+            except Exception as e:
+                return f"Error calling vLLM: {e}"
         
         if self.provider == 'openai':
             try:
