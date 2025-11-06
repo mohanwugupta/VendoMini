@@ -6,7 +6,7 @@ experiment:
   replications: 5
 
 grid:
-  agent.model.name: [Qwen/Qwen3-30B-A3B-Instruct-2507, deepseek-ai/DeepSeek-V2.5, Qwen/Qwen3-32B]
+  agent.model.name: [Qwen/Qwen3-30B-A3B-Instruct-2507, deepseek-ai/DeepSeek-V2.5, Qwen/Qwen3-32B, meta-llama--Llama-3.3-70B-Instruct, openai--gpt-oss-20b, Qwen--Qwen2.5-72B-Instruct]
   pe_induction.p_shock: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
   pe_induction.pe_mag: [low, medium, high]
 
