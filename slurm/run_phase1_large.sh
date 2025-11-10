@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8     # For parallel PDF processing
 #SBATCH --mem=64G
-#SBATCH --gres=gpu:2         # Request 2 GPUs for 30B models (160GB total VRAM)
+#SBATCH --gres=gpu:4         # Request 4 GPUs for 30B models (160GB total VRAM)
 #SBATCH --constraint=gpu80
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
