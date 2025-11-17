@@ -30,11 +30,11 @@ module load anaconda3/2025.6
 # Activate environment (adjust to your setup)
 if command -v conda &> /dev/null; then
     eval "$(conda shell.bash hook)"
-    conda activate vendomini
-elif [ -f ~/.conda/envs/vendomini/bin/activate ]; then
-    source ~/.conda/envs/vendomini/bin/activate
+    conda activate godsreach2  # Adjust environment name
+elif [ -f ~/.conda/envs/godsreach2/bin/activate ]; then
+    source ~/.conda/envs/godsreach2/bin/activate
 else
-    source activate vendomini
+    source activate godsreach2
 fi
 
 # Set up environment for HF models - using VendoMini project directory
