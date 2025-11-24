@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vendomini-phase1-large
-#SBATCH --array=0-659         # 11 p_shock × 2 pe_mag × 2 pred_mode × 3 models × 5 reps = 660 tasks
+#SBATCH --array=0-879         # 11 p_shock × 2 pe_mag × 2 pred_mode × 4 models × 5 reps = 880 tasks
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8     # For parallel PDF processing
 #SBATCH --mem=64G
