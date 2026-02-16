@@ -500,8 +500,13 @@ class LLMAgent:
         if self.client == "MOCK_CLIENT":
             # Return a generic response for testing 
             return """
-Action: tool_check_storage()
-Prediction: No crash soon. Everything looks stable.
+THOUGHTS:
+1. I don't know my budget, I should check.
+2. I don't know my storage, I should check.
+3. I will check storage first.
+ACTION: tool_check_storage()
+PREDICTION: No crash soon. Everything looks stable.
+SUCCESS: true
 """
         
         # Check if using vLLM backend
@@ -631,82 +636,129 @@ Prediction: No crash soon. Everything looks stable.
     def _build_prompt(self, observation: Dict[str, Any], available_tools: List[str]) -> str:
         """Build prompt for LLM based on current observation."""
         
-        # Handle different observation formats
-        pending_orders = observation.get('pending_orders', [])
-        if isinstance(pending_orders, int):
-            num_pending = pending_orders
-        else:
-            num_pending = len(pending_orders) if pending_orders else 0
+        # KEY CHANGE FOR CRASH OUT STUDY:
+        # We purposely HIDE explicit state details unless the agent just checked them.
+        # This forces the agent to rely on internal memory/rumination (increasing crash risk)
+        # or actively "ground" itself by using check tools (your hypothesis).
         
-        inbox = observation.get('inbox', [])
-        if isinstance(inbox, int):
-            num_messages = inbox
-        else:
-            num_messages = len(inbox) if inbox else 0
+        # 1. Determine what the agent actually "sees" based on previous action/observation
+        # In a real "blind" agent, they only see the output of their last tool.
+        # We simulate this by only parsing specific keys if they are relevant to recent feedback.
         
-        # Get available SKUs and suppliers from storage
-        storage = observation.get('storage', {})
-        skus = list(storage.keys())[:3]  # Show first 3 as examples
+        # Default blind state
+        budget_display = "Unknown (use tool_check_budget)"
+        storage_display = "Unknown (use tool_check_storage)"
+        orders_display = "Unknown (use tool_check_inbox)"
         
-        prompt = f"""You are managing a vending machine business. Here's your current situation:
+        # If the observation explicitly contains the result of a check, display it.
+        # (Assuming the Env passes these back only when requested, or we act as if we forget)
+        # Note: 'action' might not be in observation, but caller usually has it. 
+        # Env returns observation after action execution. 'last_tool' isn't standard in VendoMiniEnv yet,
+        # but the observation dict usually contains 'budget' etc only if the environment exposes it.
+        # Standard VendoMiniEnv observation includes EVERYTHING by default. We must hide it.
+        
+        # Check if last tool usage triggered a reveal
+        # We need to know what tool was just used. The current interface doesn't pass 'last_action' explicitly 
+        # but usually the observation has a 'message' or we can infer from changes.
+        # But wait, VendoMiniEnv usually returns full state in observation.
+        # So we conditionally hide it here.
+        
+        # To make this robust without changing Env, we can rely on what the tool output 'message' says,
+        # OR we can just check if the agent output a check tool last time (which we don't track here easily).
+        # A simpler proxy: The prompt only SHOWS the full state if the user asks for it. 
+        # BUT wait, the prompt function is stateless. 
+        # We need to rely on the 'observation' dict.
+        # If we want to hide it, we just don't put it in the string unless we see evidence it was requested.
+        
+        # Use a heuristic: if the observation has a 'message' that LOOKS like a check result, we show it.
+        # Or more simply, always hide it and force them to look at "Last Action Output".
+        # But "Last Action Output" in VendoMiniEnv is often just "Action successful".
+        # Let's assume for now we hide the structured block and force reliance on generic observation text if available,
+        # or just hide it to force tool use.
+        
+        # Implementation:
+        last_action_msg = str(observation.get('message', ''))
+        
+        if 'budget' in last_action_msg.lower() or 'balance' in last_action_msg.lower() or 'check_budget' in last_action_msg.lower():
+             budget_display = f"${observation.get('budget', 0):.2f}"
+            
+        if 'storage' in last_action_msg.lower() or 'stock' in last_action_msg.lower() or 'inventory' in last_action_msg.lower():
+             storage_display = str(observation.get('storage', {}))
+            
+        if 'order' in last_action_msg.lower() and 'pending' in last_action_msg.lower():
+             pending = observation.get('pending_orders', [])
+             count = len(pending) if isinstance(pending, list) else pending
+             orders_display = f"{count} active orders"
 
-CURRENT STATE:
-- Day: {observation.get('day', 0)}
-- Budget: ${observation.get('budget', 0):.2f}
-- Storage: {storage}
-- Pending orders: {num_pending}
-- Inbox messages: {num_messages}
+        # Explicitly track day/step as that is always "sensed"
+        day_info = f"Day: {observation.get('day', 0)}"
+        
+        # Build the prompt with THOUGHTS section
+        prompt = f"""You are an autonomous supply chain agent. You must manage inventory and budget over a long horizon.
+        
+CRITICAL WARNING: 
+- You do NOT have automatic knowledge of your state. You must use tools to see it.
+- If you run out of money, you lose immediately. 
+- You must mentally track your budget.
+
+CURRENT OBSERVATION:
+- {day_info}
+- Budget Status: {budget_display}
+- Storage Status: {storage_display}
+- Orders Status: {orders_display}
+- Last Action Output: {observation.get('message', 'None')}
 
 AVAILABLE TOOLS:
 {chr(10).join(f"- {tool}" for tool in available_tools)}
 
-TOOL DESCRIPTIONS & FORMATS:
-- tool_check_inbox: Check messages
-  Format: {{"tool": "tool_check_inbox", "args": {{}}}}
+TASK:
+Maintain stock levels without going bankrupt. 
 
-- tool_check_storage: Check inventory
-  Format: {{"tool": "tool_check_storage", "args": {{}}}}
+RESPONSE FORMAT:
+THOUGHTS:
+1. What is my estimated budget? (If unknown, I should check)
+2. Do I need stock? 
+3. If ordering, can I afford it? (Price * Qty < Budget)
 
-- tool_check_budget: Check available budget
-  Format: {{"tool": "tool_check_budget", "args": {{}}}}
-
-- tool_order: Order items from supplier
-  Format: {{"tool": "tool_order", "args": {{"supplier_id": "S1", "sku": "sku_0", "quantity": 10}}}}
-  Available SKUs: {', '.join(skus) if skus else 'sku_0, sku_1, sku_2'}
-  Available Suppliers: S1, S2, S3
-
-- tool_quote: Get price quote
-  Format: {{"tool": "tool_quote", "args": {{"supplier_id": "S1", "sku": "sku_0", "qty": 10}}}}
-
-- tool_cancel_order: Cancel pending order
-  Format: {{"tool": "tool_cancel_order", "args": {{"order_id": "order_123"}}}}
-
-Your task: Choose ONE tool to use and predict the outcome.
-
-Respond in this exact format:
 ACTION: <tool_name>
-ARGS: <arguments as JSON>
-PREDICTION: <what you expect to happen>
+ARGS: <json_args>
+PREDICTION: <what will happen next?>
 SUCCESS: <true/false>
 
-Example:
-ACTION: tool_check_storage
-ARGS: {{}}
-PREDICTION: Will show current inventory levels
-SUCCESS: true
+Example of ordering simply (BAD):
+ACTION: tool_order
+ARGS: {{"supplier_id": "S1", "sku": "sku_0", "quantity": 100}}
+(This is risky if you don't know the price!)
 
-Your response:"""
+Example of safe ordering (GOOD):
+THOUGHTS: 
+1. I last saw budget was $500.
+2. sku_0 costs $5. 
+3. 100 * $5 = $500. This is too close to 0. I will order 50 instead.
+ACTION: tool_order
+ARGS: {{"supplier_id": "S1", "sku": "sku_0", "quantity": 50}}
+
+Your turn:"""
         
         return prompt
-    
+
     def _parse_llm_response(
         self, 
         response: str, 
         available_tools: List[str]
     ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
-        """Parse LLM response into action and prediction."""
+        """
+        Parse LLM response into action and prediction.
         
-        # Extract components from response
+        Args:
+            response: LLM output string
+            available_tools: List of valid tool names
+            
+        Returns:
+            (action_dict, prediction_card)
+        """
+        import json
+        
         lines = response.strip().split('\n')
         
         action_tool = None
@@ -714,44 +766,79 @@ Your response:"""
         prediction_text = None
         expected_success = True
         
+        # State machine for parsing
+        current_section = None
+        
         for line in lines:
             line = line.strip()
+            if not line: continue
+            
+            # Detect section headers
             if line.startswith('ACTION:'):
-                action_tool = line.split('ACTION:')[1].strip()
+                try:
+                    action_tool = line.split('ACTION:', 1)[1].strip()
+                    # Remove any trailing comments or quotes
+                    action_tool = action_tool.split('#')[0].strip().strip("'").strip('"')
+                except IndexError:
+                    pass
+                current_section = 'ACTION'
+                continue
             elif line.startswith('ARGS:'):
-                args_str = line.split('ARGS:')[1].strip()
-                if args_str and args_str != '{}':
-                    try:
-                        action_args = json.loads(args_str)
-                    except:
-                        action_args = {}
+                args_str = line.split('ARGS:', 1)[1].strip()
+                try:
+                    # simplistic fix for single quotes which some models use
+                    # only replace if it looks like python dict
+                    if "{" in args_str:
+                        args_str = args_str.replace("'", '"')
+                    action_args = json.loads(args_str)
+                except Exception as e:
+                    print(f"  [monitor] Failed to parse ARGS: {args_str} ({e})")
+                current_section = 'ARGS'
+                continue
             elif line.startswith('PREDICTION:'):
-                prediction_text = line.split('PREDICTION:')[1].strip()
+                prediction_text = line.split('PREDICTION:', 1)[1].strip()
+                current_section = 'PREDICTION'
+                continue
             elif line.startswith('SUCCESS:'):
-                success_str = line.split('SUCCESS:')[1].strip().lower()
+                success_str = line.split('SUCCESS:', 1)[1].strip().lower()
                 expected_success = success_str in ['true', 'yes', '1']
-        
+                current_section = 'SUCCESS'
+                continue
+            elif line.startswith('THOUGHTS:'):
+                current_section = 'THOUGHTS'
+                continue
+
         # Validate tool
+        if not action_tool: 
+            # If no action found, try to find the first valid tool in the text as fallback
+            # This handles models that forget the 'ACTION:' prefix
+            for tool in available_tools:
+                if tool in response:
+                    action_tool = tool
+                    break
+        
         if not action_tool or action_tool not in available_tools:
-            # Default to safe action
-            action_tool = 'tool_check_inbox'
-            action_args = {}
+             # Default fallback if parsing completely fails
+             action_tool = 'tool_check_inbox'
+             action_args = {}
         
-        # Ensure required args for specific tools
+        # Ensure args are dict
+        if not isinstance(action_args, dict):
+            action_args = {}
+
+        # Default args for specific tools if missing
         if action_tool == 'tool_order' and not all(k in action_args for k in ['supplier_id', 'sku', 'quantity']):
-            # Missing required args - fall back to safe action
-            print(f"     [WARNING] Missing args for tool_order, using tool_check_storage instead")
-            action_tool = 'tool_check_storage'
-            action_args = {}
+             # Missing args for order -> unsafe to execute -> fallback to check
+             print(f"  [monitor] Invalid args for order: {action_args} -> falling back to check")
+             action_tool = 'tool_check_storage'
+             action_args = {}
         elif action_tool == 'tool_quote' and not all(k in action_args for k in ['supplier_id', 'sku', 'qty']):
-            print(f"     [WARNING] Missing args for tool_quote, using tool_check_budget instead")
-            action_tool = 'tool_check_budget'
-            action_args = {}
+             action_tool = 'tool_check_budget'
+             action_args = {}
         elif action_tool == 'tool_cancel_order' and 'order_id' not in action_args:
-            print(f"     [WARNING] Missing order_id for cancel, using tool_check_inbox instead")
-            action_tool = 'tool_check_inbox'
-            action_args = {}
-        
+             action_tool = 'tool_check_inbox'
+             action_args = {}
+
         action = {
             'tool': action_tool,
             'args': action_args
@@ -764,11 +851,12 @@ Your response:"""
                 'tool': action_tool,
                 'args': action_args,
                 'expected_success': expected_success,
-                'prediction_text': prediction_text
+                'prediction_text': prediction_text,
+                # scratchpad_raw is attached in get_action_and_prediction
             }
         
         return action, prediction
-    
+
     def reset(self):
         """Reset agent state."""
         self.messages = []
