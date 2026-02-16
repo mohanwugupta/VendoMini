@@ -83,7 +83,7 @@ def main():
         print(f"Total experiments: {len(all_configs)}")
         
         # Run experiments
-        results = runner.run_local_parallel(n_jobs=args.n_jobs)
+        results = runner.run_parallel(n_jobs=args.n_jobs)
         
         print(f"\n✅ All experiments complete!")
         print(f"Total runs: {len(results)}")

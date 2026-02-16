@@ -1,0 +1,35 @@
+# Minimal Config for Demo
+experiment:
+  name: "demo_run"
+  description: "Minimal demo run for README"
+  run_id: null 
+  output_dir: "results/demo"
+  
+environment:
+  max_steps: 10
+  initial_budget: 1000
+  initial_storage:
+    snacks: 20
+    drinks: 15
+    candy: 10
+  storage_capacity: 100
+  delivery_cost: 50
+  delivery_delay: 1
+  tool_costs:
+    tool_check_storage: 0
+    tool_check_inbox: 0
+    tool_order_delivery: 0
+  
+  shock_config:
+    enabled: true
+    frequency: 0.1
+    types:
+      demand_spike: 0.5
+      supply_delay: 0.5
+    intensity_range: [0.5, 1.5]
+
+model:
+  name: "mock-demo-model"
+  temperature: 0.0
+  max_tokens_per_call: 100
+  context_length: 1024

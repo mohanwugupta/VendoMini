@@ -65,6 +65,8 @@ class LLMAgent:
             return 'openai'
         elif 'claude' in model_lower:
             return 'anthropic'
+        elif 'mock' in model_lower:
+            return 'mock'
         else:
             # Default to OpenAI-compatible
             return 'openai'
@@ -382,6 +384,8 @@ class LLMAgent:
                 import traceback
                 traceback.print_exc()
                 return None
+        elif self.provider == 'mock':
+            return "MOCK_CLIENT"
         return None
     
     def _initialize_vllm(self):
@@ -485,6 +489,13 @@ class LLMAgent:
         if self.client is None:
             # No client available, return dummy response
             return "No LLM client configured"
+        
+        if self.client == "MOCK_CLIENT":
+            # Return a generic response for testing 
+            return """
+Action: tool_check_storage()
+Prediction: No crash soon. Everything looks stable.
+"""
         
         # Check if using vLLM backend
         if isinstance(self.client, dict) and self.client.get('backend') == 'vllm':
