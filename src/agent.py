@@ -474,6 +474,13 @@ class LLMAgent:
         
         # Parse response into action and prediction
         action, prediction = self._parse_llm_response(response, available_tools)
+
+        # Attach raw response as scratchpad to prediction
+        if prediction is None:
+            prediction = {}
+        # Keep any existing scratchpad but prefer adding raw_response under 'scratchpad_raw'
+        prediction['scratchpad_raw'] = response
+
         return action, prediction
     
     def _call_llm(self, prompt: str) -> str:
