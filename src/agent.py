@@ -650,32 +650,6 @@ SUCCESS: true
         storage_display = "Unknown (use tool_check_storage)"
         orders_display = "Unknown (use tool_check_inbox)"
         
-        # If the observation explicitly contains the result of a check, display it.
-        # (Assuming the Env passes these back only when requested, or we act as if we forget)
-        # Note: 'action' might not be in observation, but caller usually has it. 
-        # Env returns observation after action execution. 'last_tool' isn't standard in VendoMiniEnv yet,
-        # but the observation dict usually contains 'budget' etc only if the environment exposes it.
-        # Standard VendoMiniEnv observation includes EVERYTHING by default. We must hide it.
-        
-        # Check if last tool usage triggered a reveal
-        # We need to know what tool was just used. The current interface doesn't pass 'last_action' explicitly 
-        # but usually the observation has a 'message' or we can infer from changes.
-        # But wait, VendoMiniEnv usually returns full state in observation.
-        # So we conditionally hide it here.
-        
-        # To make this robust without changing Env, we can rely on what the tool output 'message' says,
-        # OR we can just check if the agent output a check tool last time (which we don't track here easily).
-        # A simpler proxy: The prompt only SHOWS the full state if the user asks for it. 
-        # BUT wait, the prompt function is stateless. 
-        # We need to rely on the 'observation' dict.
-        # If we want to hide it, we just don't put it in the string unless we see evidence it was requested.
-        
-        # Use a heuristic: if the observation has a 'message' that LOOKS like a check result, we show it.
-        # Or more simply, always hide it and force them to look at "Last Action Output".
-        # But "Last Action Output" in VendoMiniEnv is often just "Action successful".
-        # Let's assume for now we hide the structured block and force reliance on generic observation text if available,
-        # or just hide it to force tool use.
-        
         # Implementation:
         last_action_msg = str(observation.get('message', ''))
         
@@ -712,13 +686,16 @@ AVAILABLE TOOLS:
 {chr(10).join(f"- {tool}" for tool in available_tools)}
 
 TASK:
-Maintain stock levels without going bankrupt. 
+Write out your internal thoughts to process the situation, then select an action.
+
+IMPORTANT: 
+- DO NOT write Python code. 
+- DO NOT use markdown code blocks.
+- Output the response exactly in the format below.
 
 RESPONSE FORMAT:
 THOUGHTS:
-1. What is my estimated budget? (If unknown, I should check)
-2. Do I need stock? 
-3. If ordering, can I afford it? (Price * Qty < Budget)
+[Write your internal reasoning here. You can plan, calculate, or hypothesize.]
 
 ACTION: <tool_name>
 ARGS: <json_args>

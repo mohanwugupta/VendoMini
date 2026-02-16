@@ -47,3 +47,4 @@ models/
 results/
 *.csv
 *.json
+venv_demo/
