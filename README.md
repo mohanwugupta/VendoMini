@@ -80,15 +80,6 @@ python scripts/aggregate_results.py --input-dir results/demo --output results/de
 python scripts/analyze_results.py --results results/demo.csv
 ```
 
-Engineering Highlights (For Reviewers)
-------------------------------------------------
-This project demonstrates **System Design** and **Reliability**:
-
-- **Modular Design**: Components are decoupled; e.g., Crash Detectors can be swapped without changing the Environment.
-- **Testing**: Run `pytest tests/` to see unit tests for critical logic (PE calculation, state transitions).
-- **Parallelism**: The `ExperimentRunner` handles both local `joblib` parallelism and cluster-based distribution via Ray/SLURM with a unified interface.
-- **Defensive Coding**: Type hints, explicit error handling for API failures, and structured logging throughout.
-
 What to add next
 -----------------------------------------
 - **Visualization Dashboard**: A Streamlit app to visualize the step-by-step agent decisions.
