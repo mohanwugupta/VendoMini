@@ -162,7 +162,9 @@ def extract_detailed_metrics(run_dir: Path, summary: dict) -> dict:
 
 def main():
     # Prefer repo-root logs dir (works when running script from anywhere).
+    # Path(__file__) is this script, .parent is scripts/, .parent.parent is project root
     logs_dir = Path(__file__).parent.parent / 'logs'
+    
     # Fallback to cluster absolute path if repo-relative logs not present.
     if not logs_dir.exists():
         fallback = Path('/scratch/gpfs/JORDANAT/mg9965/VendoMini/logs')
