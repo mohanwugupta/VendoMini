@@ -24,10 +24,6 @@ dist/
 *.swo
 *~
 
-# Logs
-*.log
-logs/
-
 # OS
 .DS_Store
 Thumbs.db
@@ -44,7 +40,5 @@ models/
 *.hdf5
 
 # Results and data
-results/
-*.csv
-*.json
+
 venv_demo/
