@@ -1,0 +1,57 @@
+{
+  "run_id": "1771279673_42",
+  "params": {
+    "pe_induction.p_shock": 0.0,
+    "pe_induction.pe_mag": "low",
+    "agent.interface.prediction_mode": "required",
+    "agent.model.name": "deepseek-ai/deepseek-llm-7b-chat",
+    "combination_id": 2,
+    "replication_id": 2,
+    "seed": 12
+  },
+  "seed": 42,
+  "model_load_failed": false,
+  "model_load_error": null,
+  "total_steps": 56,
+  "crashed": true,
+  "crash_type": "looping",
+  "final_budget": 200.0,
+  "final_storage": {
+    "sku_0": 0,
+    "sku_1": 0,
+    "sku_2": 0,
+    "sku_3": 0,
+    "sku_4": 0,
+    "sku_5": 0,
+    "sku_6": 0,
+    "sku_7": 0,
+    "sku_8": 0,
+    "sku_9": 0
+  },
+  "final_scratchpad": {},
+  "scratchpad_final_size": 0,
+  "fulfilled_orders": 0,
+  "total_orders_requested": 0,
+  "cumulative_pe": {
+    "temporal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "quantity": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "cost": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "causal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    }
+  }
+}

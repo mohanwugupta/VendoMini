@@ -1,0 +1,57 @@
+{
+  "run_id": "1771294451_42",
+  "params": {
+    "pe_induction.p_shock": 0.8,
+    "pe_induction.pe_mag": "low",
+    "agent.interface.prediction_mode": "optional",
+    "agent.model.name": "meta-llama/Llama-3.1-8B-Instruct",
+    "combination_id": 99,
+    "replication_id": 0,
+    "seed": 495
+  },
+  "seed": 42,
+  "model_load_failed": false,
+  "model_load_error": null,
+  "total_steps": 27,
+  "crashed": true,
+  "crash_type": "looping",
+  "final_budget": -1961.1502544162713,
+  "final_storage": {
+    "sku_0": 50,
+    "sku_1": 0,
+    "sku_2": 0,
+    "sku_3": 0,
+    "sku_4": 0,
+    "sku_5": 0,
+    "sku_6": 0,
+    "sku_7": 0,
+    "sku_8": 0,
+    "sku_9": 0
+  },
+  "final_scratchpad": {},
+  "scratchpad_final_size": 0,
+  "fulfilled_orders": 1,
+  "total_orders_requested": 1,
+  "cumulative_pe": {
+    "temporal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "quantity": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "cost": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "causal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    }
+  }
+}

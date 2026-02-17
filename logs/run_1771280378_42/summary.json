@@ -1,0 +1,57 @@
+{
+  "run_id": "1771280378_42",
+  "params": {
+    "pe_induction.p_shock": 0.0,
+    "pe_induction.pe_mag": "high",
+    "agent.interface.prediction_mode": "required",
+    "agent.model.name": "allenai/OLMo-2-1124-13B-Instruct",
+    "combination_id": 7,
+    "replication_id": 3,
+    "seed": 38
+  },
+  "seed": 42,
+  "model_load_failed": false,
+  "model_load_error": null,
+  "total_steps": 23,
+  "crashed": false,
+  "crash_type": null,
+  "final_budget": -2118.8983061481345,
+  "final_storage": {
+    "sku_0": 50,
+    "sku_1": 0,
+    "sku_2": 0,
+    "sku_3": 0,
+    "sku_4": 0,
+    "sku_5": 0,
+    "sku_6": 0,
+    "sku_7": 0,
+    "sku_8": 0,
+    "sku_9": 0
+  },
+  "final_scratchpad": {},
+  "scratchpad_final_size": 0,
+  "fulfilled_orders": 1,
+  "total_orders_requested": 5,
+  "cumulative_pe": {
+    "temporal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "quantity": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "cost": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "causal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    }
+  }
+}
