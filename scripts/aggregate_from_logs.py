@@ -161,7 +161,16 @@ def extract_detailed_metrics(run_dir: Path, summary: dict) -> dict:
 
 
 def main():
-    logs_dir = Path('logs')
+    # Prefer repo-root logs dir (works when running script from anywhere).
+    logs_dir = Path(__file__).parent.parent / 'logs'
+    # Fallback to cluster absolute path if repo-relative logs not present.
+    if not logs_dir.exists():
+        fallback = Path('/scratch/gpfs/JORDANAT/mg9965/VendoMini/logs')
+        if fallback.exists():
+            logs_dir = fallback
+        else:
+            print(f"⚠️ Logs directory not found at {logs_dir} or {fallback}")
+            return
     
     print("=" * 60)
     print("VendoMini Results Aggregator (from logs)")
