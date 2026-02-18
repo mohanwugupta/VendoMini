@@ -34,15 +34,27 @@ def print_summary_stats(df: pd.DataFrame):
     
     print(f"\nTime to crash (crashed runs):")
     crashed = df[df['crashed']]
-    if len(crashed) > 0:
-        print(f"  Mean: {crashed['time_to_crash'].mean():.1f} steps")
-        print(f"  Median: {crashed['time_to_crash'].median():.1f} steps")
-        print(f"  Std: {crashed['time_to_crash'].std():.1f} steps")
+    
+    # Use 'total_steps' as time_to_crash if time_to_crash is not explicitly present
+    time_col = 'time_to_crash' if 'time_to_crash' in df.columns else 'total_steps'
+    
+    if len(crashed) > 0 and time_col in crashed.columns:
+        print(f"  Mean: {crashed[time_col].mean():.1f} steps")
+        print(f"  Median: {crashed[time_col].median():.1f} steps")
+        print(f"  Std: {crashed[time_col].std():.1f} steps")
     
     print(f"\nSuccess metrics:")
-    print(f"  Mean success rate: {df['success_rate'].mean()*100:.1f}%")
-    print(f"  Mean final budget: ${df['final_budget'].mean():.2f}")
-    print(f"  Mean fulfilled orders: {df['fulfilled_orders'].mean():.1f}")
+    if 'success_rate' in df.columns:
+        print(f"  Mean success rate: {df['success_rate'].mean()*100:.1f}%")
+    else:
+        # Calculate from crashed column if success_rate is missing
+        print(f"  Mean success rate: {(~df['crashed']).mean()*100:.1f}%")
+
+    if 'final_budget' in df.columns:
+        print(f"  Mean final budget: ${df['final_budget'].mean():.2f}")
+    
+    if 'fulfilled_orders' in df.columns:
+        print(f"  Mean fulfilled orders: {df['fulfilled_orders'].mean():.1f}")
 
 
 def plot_crash_distribution(df: pd.DataFrame, output_dir: Path):
@@ -50,8 +62,10 @@ def plot_crash_distribution(df: pd.DataFrame, output_dir: Path):
     plt.figure(figsize=(10, 6))
     
     crashed = df[df['crashed']]
-    if len(crashed) > 0:
-        sns.histplot(data=crashed, x='time_to_crash', bins=30)
+    time_col = 'time_to_crash' if 'time_to_crash' in df.columns else 'total_steps'
+    
+    if len(crashed) > 0 and time_col in crashed.columns:
+        sns.histplot(data=crashed, x=time_col, bins=30)
         plt.xlabel('Time to Crash (steps)')
         plt.ylabel('Count')
         plt.title('Distribution of Time to Crash')

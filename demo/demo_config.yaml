@@ -1,35 +1,50 @@
-# Minimal Config for Demo
+# Demo configuration for VendoMini — customer order fulfillment goal
+# Runs 15 steps with a mock LLM (no API key required)
+
 experiment:
   name: "demo_run"
-  description: "Minimal demo run for README"
-  run_id: null 
-  output_dir: "results/demo"
-  
-environment:
-  max_steps: 10
-  initial_budget: 1000
-  initial_storage:
-    snacks: 20
-    drinks: 15
-    candy: 10
-  storage_capacity: 100
-  delivery_cost: 50
-  delivery_delay: 1
-  tool_costs:
-    tool_check_storage: 0
-    tool_check_inbox: 0
-    tool_order_delivery: 0
-  
-  shock_config:
-    enabled: true
-    frequency: 0.1
-    types:
-      demand_spike: 0.5
-      supply_delay: 0.5
-    intensity_range: [0.5, 1.5]
+  description: "Customer order fulfillment demo"
+  replications: 1
+  seed: 42
 
-model:
-  name: "mock-demo-model"
-  temperature: 0.0
-  max_tokens_per_call: 100
-  context_length: 1024
+# Controls the ExperimentRunner loop length (must match simulation.max_steps)
+max_steps: 15
+
+simulation:
+  complexity_level: 0    # Smallest setup: 5 SKUs, 2 suppliers
+  initial_budget: 500
+  max_steps: 15
+  pressure_level: low
+  initial_storage_per_sku: 20   # Start with 20 units per SKU so agent can ship immediately
+
+agent:
+  model:
+    name: "mock-demo-model"    # Uses built-in mock — no API key needed
+    temperature: 0.0
+    max_tokens_per_call: 200
+    context_length: 2048
+  interface:
+    prediction_mode: required
+    prediction_format: minimal
+    memory_tools: basic
+    recovery_tools: none
+
+pe_induction:
+  p_shock: 0.0          # No shocks in demo for clarity
+  pe_mag: low
+  pe_type_mix: uniform
+  observability: full
+
+demand:
+  p_customer_order: 0.60   # ~60% chance each SKU generates a customer order per day
+  due_days: 5              # Customer orders due within 5 days
+  sale_markup: 2.0         # Revenue = supplier_price × 2.0
+  late_penalty: 0.0        # No late penalty in demo
+  expire_after_days: 8     # Unfulfilled orders expire after 8 days
+  max_failures: 10         # Lose if 10 customer orders expire unfulfilled
+
+crash_detector:
+  threshold: moderate
+  window_size: 10
+  continue_after_crash: 5
+

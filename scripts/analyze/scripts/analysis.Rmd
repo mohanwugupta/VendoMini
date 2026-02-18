@@ -1,0 +1,847 @@
+---
+title: "VendBench Metrics"
+output: html_document
+metricse: "2025-08-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readr)
+library(slider)
+library(data.table)
+library(zoo)
+library(randomForest)
+library(forecast)
+library(glmnet)
+library(caret)
+library(pROC)
+library(survival)
+library(stringr)
+
+metrics <- read_csv("C:/Users/sheik/Box/ResearchProjects/VenBench/processed/timeseries_data.csv")
+belief_metrics <- read_csv("C:/Users/sheik/Box/ResearchProjects/VenBench/processed/model_beliefs.csv")
+model_breakdowns <- read_csv("C:/Users/sheik/Box/ResearchProjects/VenBench/processed_new/model_breakdowns_sentiment.csv")
+model_identity <- read_csv("C:/Users/sheik/Box/ResearchProjects/VenBench/processed_new/model_identity_positions.csv")
+scoring <- read_csv("C:/Users/sheik/Box/ResearchProjects/VenBench/processed/scoring_data_epochs.csv")
+toolUsage <- read_csv("C:/Users/sheik/Box/ResearchProjects/VenBench/processed/tool_usage_epochs.csv")
+identity <- read_csv("C:/Users/sheik/Box/ResearchProjects/VenBench/processed/model_identity_positions.csv")
+
+
+```
+
+```{r, echo=FALSE}
+
+moneyBalance <- metrics %>%
+  filter(event_type == "money_balance") %>%
+    mutate(
+    value = if (is.character(value)) parse_number(value) else as.numeric(value)) %>% 
+    group_by(model_folder, timestamp, event_index) %>%
+  summarise(
+    n    = sum(!is.na(value)),
+    mean = if (n > 0) mean(value, na.rm = TRUE) else NA_real_,
+    sd   = if (n > 1) sd(value, na.rm = TRUE) else NA_real_,
+    se   = if (n > 1) sd / sqrt(n) else NA_real_,
+    .groups = "drop_last"
+  ) %>%
+  ungroup()
+
+
+netWorth <- metrics %>%
+   filter(event_type == "net_worth") %>%
+    mutate(
+    value = if (is.character(value)) parse_number(value) else as.numeric(value)) %>% 
+    group_by(model_folder, timestamp, event_index) %>%
+  summarise(
+    n    = sum(!is.na(value)),
+    mean = if (n > 0) mean(value, na.rm = TRUE) else NA_real_,
+    sd   = if (n > 1) sd(value, na.rm = TRUE) else NA_real_,
+    se   = if (n > 1) sd / sqrt(n) else NA_real_,
+    .groups = "drop_last"
+  ) %>%
+  ungroup()
+
+unitsSold <- metrics %>%
+   filter(event_type == "units_sold") %>%
+    mutate(
+    value = if (is.character(value)) parse_number(value) else as.numeric(value)) %>% 
+    group_by(model_folder, timestamp, event_index) %>%
+  summarise(
+    n    = sum(!is.na(value)),
+    mean = if (n > 0) mean(value, na.rm = TRUE) else NA_real_,
+    sd   = if (n > 1) sd(value, na.rm = TRUE) else NA_real_,
+    se   = if (n > 1) sd / sqrt(n) else NA_real_,
+    .groups = "drop_last"
+  ) %>%
+  ungroup()
+
+toolUse <-  metrics %>%
+    filter(event_type == "tool_call") %>%
+    mutate(value = as.factor(value)) %>%
+    group_by(model_folder, timestamp, value, event_index) %>%
+    summarise(count = n(), .groups = "drop_last") %>%
+    arrange(model_folder, timestamp) %>%
+    group_by(model_folder, value) %>%
+    mutate(cumulative_total = cumsum(count)) %>%
+    ungroup() %>% 
+     group_by(model_folder, timestamp, event_index) %>%
+  summarise(
+    tools_used            = n_distinct(value),
+    total_calls           = sum(count),
+    mean_calls_per_tool   = mean(count),
+    sd_calls_per_tool     = if (n() > 1) sd(count) else NA_real_,
+    se_calls_per_tool     = if (n() > 1) sd(count)/sqrt(n()) else NA_real_,
+    .groups = "drop"
+  )
+
+moneyBalanceG <- moneyBalance %>% 
+  ggplot( aes(y = mean, x = timestamp, color = model_folder)) +
+  geom_point(alpha = 7/10) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean + se), alpha = .3, color="grey") +
+  xlab("Time Stamp") +
+  ylab("Money Balance in US Dollars") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        legend.key.size = unit(2, 'cm'),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34))  +
+  guides(fill = "none") 
+
+netWorthG <- netWorth %>% 
+  ggplot( aes(y = mean, x = timestamp, color = model_folder)) +
+  geom_point(alpha = 7/10) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean + se), alpha = .3, color="grey") +
+  xlab("Time Stamp") +
+  ylab("Networth in US Dollars") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        legend.key.size = unit(2, 'cm'),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34))  +
+  guides(fill = "none") 
+
+unitsSoldG <- unitsSold %>% 
+  ggplot( aes(y = mean, x = timestamp, color = model_folder)) +
+  geom_point(alpha = 7/10) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean + se), alpha = .3, color="grey") +
+  xlab("Time Stamp") +
+  ylab("Units Sold") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        legend.key.size = unit(2, 'cm'),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34))  +
+  guides(fill = "none") 
+
+toolUseG <- toolUse %>%
+  group_by(model_folder, timestamp, event_index) %>%
+  summarise(total_calls = dplyr::n(), .groups = "drop") %>%
+  arrange(model_folder, timestamp, event_index) %>%
+  group_by(model_folder) %>%
+  mutate(cumulative_calls = cumsum(total_calls)) %>%
+  ungroup() %>%  
+  ggplot( aes(y = cumulative_calls, x = timestamp, color = model_folder)) +
+  geom_point(alpha = 7/10) +
+  geom_line() +
+  #geom_errorbar(aes(ymin = tools_used-se_calls_per_tool, ymax = tools_used + se_calls_per_tool), alpha = .3, color="grey") +
+  xlab("Time Stamp") +
+  ylab("Tool Use") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        legend.key.size = unit(2, 'cm'),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34))  +
+  guides(fill = "none") 
+```
+
+```{r, echo=FALSE}
+# could think about calculating a daily revenue - would need to grab from the actual json data to compare
+# beliefs
+moneyBalanceBelief <- belief_metrics %>%
+  filter(name == "money_balance",
+         message_index != "final",
+         message_index != "intermediate",
+         message_index != "summary") %>%
+    mutate(
+    message_index  = suppressWarnings(as.numeric(message_index)),
+    value = if (is.character(value)) parse_number(value) else as.numeric(value)) %>% 
+    group_by(model, message_index) %>%
+  summarise(
+    n    = sum(!is.na(value)),
+    mean = if (n > 0) mean(value, na.rm = TRUE) else NA_real_,
+    sd   = if (n > 1) sd(value, na.rm = TRUE) else NA_real_,
+    se   = if (n > 1) sd / sqrt(n) else NA_real_,
+    .groups = "drop_last"
+  ) %>%
+  ungroup()
+
+unitsSoldBelief <- belief_metrics %>%
+  filter(name == "units_sold",
+         message_index != "final",
+         message_index != "intermediate",
+         message_index != "summary") %>%
+    mutate(
+    value = if (is.character(value)) parse_number(value) else as.numeric(value)) %>% 
+    group_by(model, message_index) %>%
+  summarise(
+    n    = sum(!is.na(value)),
+    mean = if (n > 0) mean(value, na.rm = TRUE) else NA_real_,
+    sd   = if (n > 1) sd(value, na.rm = TRUE) else NA_real_,
+    se   = if (n > 1) sd / sqrt(n) else NA_real_,
+    .groups = "drop_last"
+  ) %>%
+  ungroup()
+
+moneyBalanceBeliefG <- moneyBalanceBelief %>% 
+  ggplot(aes(y = mean, x = message_index, color = model)) +
+  geom_point(alpha = 7/10) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean + se), alpha = .5, color="grey") +
+  xlab("Message Index") +
+  ylab("Money Balance Belief") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        legend.key.size = unit(2, 'cm'),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34))  +
+  guides(fill = "none") 
+
+
+unitsSoldBeliefG <- unitsSoldBelief %>% 
+  ggplot( aes(y = mean, x = message_index, color = model)) +
+  geom_point(alpha = 7/10) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean + se), alpha = .3, color="grey") +
+  xlab("Time Stamp") +
+  ylab("Units Sold Belief") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        legend.key.size = unit(2, 'cm'),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34))  +
+  guides(fill = "none") 
+```
+
+```{r, echo=FALSE}
+# Divergence calcs
+
+moneyReal <- metrics %>%
+  filter(event_type == "money_balance") %>%
+    mutate(
+    value = if (is.character(value)) parse_number(value) else as.numeric(value)) 
+moneyBelief <- belief_metrics %>%
+  filter(name == "money_balance",
+         message_index != "final",
+         message_index != "intermediate",
+         message_index != "summary") %>%
+    mutate(
+    message_index  = suppressWarnings(as.numeric(message_index)),
+    value = if (is.character(value)) parse_number(value) else as.numeric(value)) 
+
+# join and calculate
+
+## 1) Clean & reduce to what's needed
+belief <- moneyBelief %>%
+  filter(name == "money_balance") %>%
+  transmute(
+    model_folder =  sub("^[^/////]+[/////]+([^/////]+).*", "//1", model),
+    run_id,
+    epoch,
+    # pick message_index if present, else fall back to step
+    idx_belief = coalesce(as.numeric(message_index), as.numeric(step)),
+    belief_value = coalesce(as.numeric(summary_value), as.numeric(value))
+  ) %>%
+  distinct(run_id, epoch, idx_belief, .keep_all = TRUE)
+
+real <- moneyReal %>%
+  filter(event_type == "money_balance") %>%
+  transmute(
+    model_folder,
+    run_id,
+    epoch,
+    idx_real = as.numeric(event_index),
+    timestamp = as.numeric(timestamp),
+    real_value = as.numeric(value)
+  ) %>%
+  distinct(run_id, epoch, idx_real, .keep_all = TRUE)
+
+## 2) Convert to data.table and set keys
+A <- as.data.table(belief)
+B <- as.data.table(real)
+
+# If indices reset each epoch, include epoch in the key (recommended)
+setkey(A, run_id, epoch, idx_belief)
+setkey(B, run_id, epoch, idx_real)
+
+## 3) Roll/nearest join: for each belief index, take the nearest real index
+tol <- 5L  # max allowed index gap; adjust as needed
+A[, belief_idx := idx_belief]  # non-join copy you can keep
+joined <- B[
+  A,
+  on = .(run_id, epoch, idx_real = idx_belief),
+  roll = "nearest"
+]
+
+## 4) Keep only pairs within tolerance and compute the difference
+joined[, idx_gap := abs(idx_real - belief_idx)]
+diff_df <- joined[idx_gap <= tol][
+  ,
+  .(
+    model_folder, run_id, epoch,
+    belief_idx = belief_idx,
+    real_idx   = idx_real,
+    idx_gap,
+    timestamp,
+    belief_value,
+    real_value,
+    diff = belief_value - real_value
+  )
+][order(model_folder, epoch, belief_idx)]
+
+# Example: summarise per run/epoch
+diff_summary <- diff_df[, .(
+  n_pairs       = .N,
+  mean_diff     = mean(diff, na.rm = TRUE),
+  median_diff   = median(diff, na.rm = TRUE),
+  mae           = mean(abs(diff), na.rm = TRUE),
+  rmse          = sqrt(mean((diff)^2, na.rm = TRUE))
+), by = .(model_folder, real_idx)]
+
+
+moneyBalanceBeliefG <- diff_df %>% 
+  ggplot(aes(y = diff, x = real_idx, color = model_folder)) +
+  geom_point(alpha = 7/10) +
+  geom_line(size = 2) +
+ # geom_errorbar(aes(ymin = mean-se, ymax = mean + se), alpha = .5, color="grey") +
+  xlab("Message Index") +
+  ylab("Money Truth-Belief Difference") +
+  ggtitle("") +  
+  theme_minimal() + 
+  facet_wrap(model_folder ~ epoch, scales = "free_x") +
+  theme(strip.text = element_text(size = 20, face = "bold"), 
+    legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        legend.key.size = unit(2, 'cm'),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34))  +
+  guides(fill = "none") 
+```
+
+```{r, echo=FALSE}
+# plot sentiment across steps
+senti_steps <- model_breakdowns %>% 
+  filter(vader_neg != 0)
+  
+senti_steps %>% 
+  ggplot(aes(y = vader_neg, x = step, color = model)) +
+  geom_line(size = 2, alpha = .5,) +
+  xlab("Message Index") +
+  ylab("Negative Vader Score") +
+  ggtitle("") +  
+  theme_minimal() + 
+    facet_wrap(model ~ epoch, scales = "free_x") +
+  theme(    strip.text = element_text(size = 20, face = "bold"),   # facet label size
+        legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        axis.text=element_text(size=24),
+        axis.title=element_text(size=34),
+         legend.position = "none")+
+   geom_vline(data = subset(senti_steps, sentiment_anomaly == TRUE),
+             aes(xintercept = step),
+             color = "red", linetype = "dashed", alpha = 0.5)
+
+senti_steps %>% 
+ group_by(epoch, model, step) %>%
+  summarise(mean_vader = mean(vader_neg, na.rm=TRUE),
+            se_vader   = sd(vader_neg, na.rm=TRUE)/sqrt(n())) %>%
+  ggplot(aes(x=step, y=mean_vader, color=model)) +
+     geom_line(alpha = .5) +
+  xlab("Message Index") +
+  ylab("Mean Negative Vader Score") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34),
+         legend.position = "bottom",
+        legend.box = "vertical",
+        legend.text = element_text(size = 6),
+    legend.spacing.y = unit(0.01, "cm"),
+            legend.key.size = unit(1, 'cm'))  +
+  guides(color = guide_legend(ncol = 3)) +
+  facet_wrap(~ model, scales = "free_x") +
+  geom_vline(data = subset(senti_steps, sentiment_anomaly == TRUE),
+             aes(xintercept = step),
+             color = "red", linetype = "dashed", alpha = 0.5)
+
+```
+
+```{r, echo = FALSE}
+# identityContent <- identity %>% 
+#   filter(has_identity_content == 1)
+
+# Step 1: aggregate to epoch-level - need to fix the data so I get it for each epoch
+identity_summary <- identity %>%
+  group_by(model, epoch) %>%
+  summarise(total_identity = sum(has_identity_content, na.rm = TRUE), .groups = "drop")
+
+# Step 2: plot mean bar + points
+identity_summary %>%
+  ggplot(aes(x = model, y = total_identity, fill = model)) +
+  
+  # bar = mean across epochs
+  geom_bar(stat = "summary", fun = "mean", alpha = 0.7, color = "black") +
+  
+  # points = individual epochs
+  geom_jitter(aes(color = model), width = 0.2, alpha = 0.6, size = 2) +
+  
+  xlab("Model") +
+  ylab("Mean Identity Content per Epoch") +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "black", size = 2),
+    axis.text.x = element_text(size = 14, angle = 45, hjust = 1),
+    axis.title = element_text(size = 20),
+    legend.position = "bottom",
+    legend.text = element_text(size = 14),
+    legend.key.size = unit(1, "cm")
+  ) +
+  guides(color = guide_legend(ncol = 3))
+
+```
+
+```{r, echo = FALSE}
+# model fits to predict how well the model does
+
+# align datasets
+metrics <-  metrics %>%
+  mutate(model = str_extract(metadata, '(?<="model": ")[^"]+'))
+
+merged <- senti_steps %>%
+  left_join(
+    metrics %>%
+      filter(event_type == "net_worth") %>%
+      mutate(net_worth = as.numeric(value)) %>%
+      select(model, event_index, net_worth),
+    by = c("model" = "model", "step" = "event_index")
+  ) %>%
+  arrange(model, epoch, step) %>%           # ensure proper order
+  group_by(model, epoch) %>%                       # carry forward within each model
+  mutate(net_worth_filled = zoo::na.locf(net_worth, na.rm = FALSE)) %>%
+  ungroup() %>% 
+  mutate(net_worth_filled = replace_na(net_worth, 500))
+
+
+# 
+# lmModel <- lm(net_worth_filled ~ model + vader_compound + message_length + epoch + lag(net_worth, 1) + max_word_repetition, data = merged)
+# summary(lmModel)
+# merged$predicted <- predict(lmModel, newdata = merged)
+# ggplot(merged, aes(x = predicted, y = net_worth_filled)) +
+#   geom_point(alpha=0.5) +
+#   geom_abline(slope = 1, intercept = 0, color = "red") +
+#   theme_minimal() +
+#   labs(x = "Predicted", y = "Actual Net Worth")
+# 
+# set.seed(123)
+# 
+# # bad model - not explaining any more than the mean
+# rf_model <- randomForest(
+#   net_worth_filled ~ vader_compound + message_length + epoch + max_word_repetition,
+#   data = merged,
+#   ntree = 500,
+#   mtry = 3,
+#   importance = TRUE
+# )
+# importance(rf_model)
+# varImpPlot(rf_model)
+
+# ARIMAX
+# turn predictors into a numeric design matrix (one-hot encode model)
+# xreg <- model.matrix(
+#   ~ vader_compound + message_length + model + max_word_repetition,
+#   data = merged
+# )[, -1]   # remove intercept column to avoid duplication
+# 
+# fit <- auto.arima(
+#   y = merged$net_worth_filled,
+#   xreg = xreg
+# )
+# summary(fit)
+# fit_log <- auto.arima(log1p(merged$net_worth_filled), xreg = xreg)
+# summary(fit_log)
+
+# fit ending metrics to be easier
+# grab means for the other factors
+# add in sum tool use during the 
+# grab ending net_worth_filled
+
+avgMetrics <-   merged %>%
+  group_by(epoch, model) %>%
+  summarize(vaderMean = mean(vader_compound),
+            wordMean = mean(word_count),
+            repetitionMean = mean(max_word_repetition)) %>% 
+  ungroup()
+
+#toolUsage[is.na(toolUsage)] <- 0
+
+# Add in the other tool usages
+# do the lm that cuts back the useless variables as predictors
+endStats <- tibble(
+  model = scoring$model,
+  duration_seconds = as.numeric(scoring$duration_seconds),
+  net_worth_num = as.numeric(scoring$net_worth_num),
+
+  # full tool list
+  tool_get_money_balance     = as.numeric(toolUsage$tool_get_money_balance),
+  tool_get_machine_inventory = as.numeric(toolUsage$tool_get_machine_inventory),
+  tool_list_storage_products = as.numeric(toolUsage$tool_list_storage_products),
+  tool_check_storage_quantities = as.numeric(toolUsage$tool_check_storage_quantities),
+  tool_read_email_inbox      = as.numeric(toolUsage$tool_read_email_inbox),
+  tool_read_email            = as.numeric(toolUsage$tool_read_email),
+  tool_send_email            = as.numeric(toolUsage$tool_send_email),
+  tool_ai_web_search         = as.numeric(toolUsage$tool_ai_web_search),
+  tool_wait_for_next_day     = as.numeric(toolUsage$tool_wait_for_next_day),
+  tool_read_scratchpad       = as.numeric(toolUsage$tool_read_scratchpad),
+  tool_write_scratchpad      = as.numeric(toolUsage$tool_write_scratchpad),
+  tool_erase_scratchpad      = as.numeric(toolUsage$tool_erase_scratchpad),
+  tool_get_kw_value          = as.numeric(toolUsage$tool_get_kw_value),
+  tool_set_kw_value          = as.numeric(toolUsage$tool_set_kw_value),
+  tool_delete_kw_value       = as.numeric(toolUsage$tool_delete_kw_value),
+  tool_add_to_vector_db      = as.numeric(toolUsage$tool_add_to_vector_db),
+  tool_search_vector_db      = as.numeric(toolUsage$tool_search_vector_db),
+  tool_chat_with_sub_agent   = as.numeric(toolUsage$tool_chat_with_sub_agent),
+  tool_run_sub_agent         = as.numeric(toolUsage$tool_run_sub_agent)
+) %>% 
+  # normalize per second
+  mutate(across(starts_with("tool_"),
+                ~ .x / duration_seconds,
+                .names = "{.col}_per_sec")) %>%
+  # z-score predictors
+  mutate(across(starts_with("tool_"), scale)) %>%
+  # log-transform target
+  mutate(net_worth_num_log = log10(net_worth_num))
+
+endStats[is.na(endStats)] <- 0
+
+# add in average negative vader score for each run
+
+# need to add in avg vader scores
+# look at hallucinations
+# lmModelSimple <- lm(net_worth_num ~ model + tool_ai_web_search_per_sec +  tool_chat_with_sub_agent_per_sec + tool_read_email_per_sec + tool_run_sub_agent_per_sec + tool_send_email_per_sec + tool_write_scratchpad_per_sec, data = endStats)
+# summary(lmModelSimple)
+
+#---------------------------
+# 1. Prepare predictors
+#---------------------------
+X <- endStats %>%
+  select(model, ends_with("_per_sec")) %>%
+  mutate(model = factor(model)) %>%
+  model.matrix(~ . - 1, data = .)   # one-hot encode model
+
+y <- endStats$net_worth_num
+
+#---------------------------
+# 2. Fit Ridge, LASSO, Elastic Net over λ sequence
+#---------------------------
+ridge_fit <- glmnet(X, y, alpha = 0)       # ridge path
+lasso_fit <- glmnet(X, y, alpha = 1)       # lasso path
+enet_fit  <- glmnet(X, y, alpha = 0.5)     # elastic net path
+
+#---------------------------
+# 3. Pick λ with best R² (training set, not CV)
+#---------------------------
+r2_from_lambda <- function(fit, X, y) {
+  preds <- predict(fit, newx = X)
+  apply(preds, 2, function(p) {
+    ss_res <- sum((y - p)^2)
+    ss_tot <- sum((y - mean(y))^2)
+    1 - ss_res/ss_tot
+  })
+}
+
+ridge_r2 <- r2_from_lambda(ridge_fit, X, y)
+lasso_r2 <- r2_from_lambda(lasso_fit, X, y)
+enet_r2  <- r2_from_lambda(enet_fit,  X, y)
+
+ridge_best <- which.max(ridge_r2)
+lasso_best <- which.max(lasso_r2)
+enet_best  <- which.max(enet_r2)
+
+cat("Best Ridge λ:", ridge_fit$lambda[ridge_best], "R²:", max(ridge_r2), "/n")
+cat("Best LASSO λ:", lasso_fit$lambda[lasso_best], "R²:", max(lasso_r2), "/n")
+cat("Best ENet λ:", enet_fit$lambda[enet_best], "R²:", max(enet_r2), "/n")
+
+coef(ridge_fit, s = ridge_fit$lambda[ridge_best])
+coef(lasso_fit, s = lasso_fit$lambda[lasso_best])
+coef(enet_fit,  s = enet_fit$lambda[enet_best])
+#---------------------------
+# 4. Compare to OLS
+#---------------------------
+ols_model <- lm(
+  net_worth_num ~ model + .,
+  data = endStats %>% 
+           select(net_worth_num, model, ends_with("_per_sec"))
+)
+
+summary(ols_model)
+
+
+# this model needs more data for it to work well
+# Build formula automatically
+# rf_formula <- as.formula(
+#   paste("net_worth_num ~ model +", 
+#         paste(grep("_per_sec$", names(endStats), value = TRUE), collapse = " + "))
+# )
+# 
+# # Fit the RF model
+# rf_model <- randomForest(
+#   formula = rf_formula,
+#   data = endStats,
+#   ntree = 10000,
+#   mtry = 2,
+#   importance = TRUE
+# )
+# 
+# print(rf_model)
+# importance(rf_model)
+
+endStats %>% 
+  ggplot(aes(x=tool_send_email_per_sec, y=net_worth_num, color=model)) +
+  geom_point(alpha = .5) +
+  xlab("Read Email / Second") +
+  ylab("Net Worth") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", size = 2, 
+                                    linetype = "solid"),
+        axis.text=element_text(size=30),
+        axis.title=element_text(size=34),
+         legend.position = "bottom",
+        legend.box = "vertical",
+        legend.text = element_text(size = 6),
+    legend.spacing.y = unit(0.01, "cm"),
+            legend.key.size = unit(1, 'cm'))  +
+  guides(color = guide_legend(ncol = 3)) 
+
+# bar plot networth
+endStats %>% 
+  ggplot(aes(x = model, y = net_worth_num, color = model)) +
+  # bar as mean
+  geom_bar(stat = "summary", fun = "mean", fill = "grey70", color = "black", alpha = 0.7) +
+  # individual epochs
+  geom_jitter(width = 0.2, alpha = 0.5, size = 2) +
+  xlab("Model") +
+  ylab("Net Worth") +
+  ggtitle("") +  
+  theme_minimal() + 
+  theme(
+    legend.title = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "black", size = 2, linetype = "solid"),
+    axis.text.x = element_blank(),
+    axis.title = element_text(size = 34),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.text = element_text(size = 18),
+    legend.spacing.y = unit(0.01, "cm"),
+    legend.key.size = unit(1, 'cm')
+  ) +
+  guides(color = guide_legend(ncol = 3))
+
+```
+
+```{r, echo=FALSE}
+
+# -------------------------
+# 1) Robust Helpers
+# -------------------------
+# -------------------------
+# 1) Re-fix Normalization for Metrics
+# -------------------------
+# This version ensures we keep the "openai/" prefix to match model_breakdowns
+norm_model_final <- function(x) {
+  x <- as.character(x)
+  # Extract provider and model name
+  # Matches "openai_gpt-4o..." and turns it into "openai/gpt-4o..."
+  pat <- "(openai|google|bedrock|anthropic)_(.*?)(?=_\\d+\\.json|_run|$)"
+  m <- str_match(x, pat)
+  
+  ifelse(!is.na(m[,1]), 
+         paste0(m[,2], "/", m[,3]), 
+         x)
+}
+
+# -------------------------
+# 2) Process Metrics with Epoch only
+# -------------------------
+tool_calls_raw <- metrics %>%
+  filter(event_type == "tool_call") %>%
+  mutate(
+    model_clean = norm_model_final(.data[[model_col]]),
+    # We ignore the filename run_id and trust 'epoch' as the iteration index
+    epoch       = as.integer(epoch), 
+    step        = as.numeric(event_index),
+    tool        = parse_tool(value)
+  ) %>%
+  filter(!is.na(model_clean), !is.na(tool))
+
+# -------------------------
+# 3) Process model_breakdowns
+# -------------------------
+mb_clean <- model_breakdowns %>%
+  mutate(
+    model_clean = as.character(model),
+    epoch       = as.integer(epoch)
+  )
+
+# -------------------------
+# 4) Join on Model + Epoch
+# -------------------------
+# We drop run_id entirely because the strings are incompatible
+overlap_check <- inner_join(
+  mb_clean %>% distinct(model_clean, epoch),
+  tool_calls_raw %>% distinct(model_clean, epoch),
+  by = c("model_clean", "epoch")
+)
+
+cat("Success! Overlapping (Model + Epoch) pairs found:", nrow(overlap_check), "\n")
+
+# Show what we found
+print(head(overlap_check))
+
+# -------------------------
+# 1) Define the Target (Crashes)
+# -------------------------
+crash_labels <- mb_clean %>%
+  group_by(model_clean, epoch) %>%
+  summarise(
+    max_step    = max(step, na.rm = TRUE),
+    crash_event = any(sentiment_anomaly == TRUE, na.rm = TRUE),
+    # The moment of failure
+    crash_step  = if_else(crash_event, 
+                          min(step[sentiment_anomaly == TRUE], na.rm = TRUE), 
+                          max_step),
+    .groups = "drop"
+  )
+
+# -------------------------
+# 2) Calculate Early Warning Features
+# -------------------------
+EARLY_FRAC <- 0.20
+
+# A) Text Features (VADER, Repetition, length)
+early_text_feats <- mb_clean %>%
+  left_join(crash_labels, by = c("model_clean", "epoch")) %>%
+  # Filter to the first 20% of the run OR before the crash
+  filter(step <= (max_step * EARLY_FRAC), step < crash_step) %>%
+  group_by(model_clean, epoch) %>%
+  summarise(
+    vader_neg_sd    = sd(vader_neg, na.rm = TRUE),
+    vader_neg_slope = if(n() >= 3) coef(lm(vader_neg ~ step))[2] else 0,
+    rep_mean        = mean(max_word_repetition, na.rm = TRUE),
+    msg_len_avg     = mean(message_length, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# B) Tool Features (Diversity, Monitoring Rate)
+monitor_tools <- c("get_money_balance", "get_machine_inventory", "check_storage_quantities")
+
+early_tool_feats <- tool_calls_raw %>%
+  left_join(crash_labels, by = c("model_clean", "epoch")) %>%
+  # Use the same temporal window
+  filter(step <= (max_step * EARLY_FRAC), step < crash_step) %>%
+  group_by(model_clean, epoch) %>%
+  summarise(
+    total_tools     = n(),
+    unique_tools    = n_distinct(tool),
+    monitoring_rate = sum(tool %in% monitor_tools) / n(),
+    .groups = "drop"
+  )
+
+# -------------------------
+# 3) Combine into Final Modeling Dataset
+# -------------------------
+modeling_dat <- crash_labels %>%
+  inner_join(early_text_feats, by = c("model_clean", "epoch")) %>%
+  left_join(early_tool_feats,  by = c("model_clean", "epoch")) %>%
+  # If a model called no tools in the first 20%, rates are 0
+  mutate(across(c(total_tools, unique_tools, monitoring_rate), ~replace_na(.x, 0)))
+
+# -------------------------
+# 4) Visual Sanity Check
+# -------------------------
+# Let's see if Monitoring Rate actually differs between Crash/No-Crash
+ggplot(modeling_dat, aes(x = factor(crash_event), y = monitoring_rate, fill = factor(crash_event))) +
+  geom_boxplot(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Early Monitoring Rate vs. Crash Outcome",
+       x = "Crashed? (0=No, 1=Yes)", y = "Tool Monitoring Rate (First 20%)")
+
+# -------------------------
+# 5) The Early Warning Model
+# -------------------------
+# Since N=27, we'll use a simple Logistic Regression
+# We scale the features (Z-score) to make coefficients comparable
+model_formula <- crash_event ~ scale(vader_neg_sd) + scale(vader_neg_slope) + 
+                               scale(rep_mean) + scale(monitoring_rate) + scale(unique_tools)
+
+fit <- glm(model_formula, data = modeling_dat, family = binomial)
+
+cat("\n--- EARLY WARNING MODEL SUMMARY ---\n")
+summary(fit)
+
+# Calculate AUC
+prob <- predict(fit, type = "response")
+roc_obj <- roc(modeling_dat$crash_event, prob)
+cat("\nModel AUC:", auc(roc_obj), "\n")
+```

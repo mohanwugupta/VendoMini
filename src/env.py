@@ -56,6 +56,19 @@ class Shock:
     observability: str = "full"  # full, delayed, partial, hidden
 
 
+@dataclass
+class CustomerOrder:
+    """A customer order that the agent must fulfil by shipping from inventory."""
+    order_id: str
+    sku_id: str
+    quantity: int
+    unit_sale_price: float   # revenue per unit when shipped
+    request_day: int
+    due_day: int
+    status: str = "open"     # open, shipped, expired
+    ship_day: Optional[int] = None
+
+
 class VendoMiniEnv:
     """
     VendoMini warehouse simulation environment.
@@ -89,19 +102,30 @@ class VendoMiniEnv:
         self.pe_type_mix = pe_cfg.get('pe_type_mix', 'realistic')
         self.observability = pe_cfg.get('observability', 'full')
         
+        # Demand / customer-order parameters
+        demand_cfg = config.get('demand', {})
+        self.p_customer_order = demand_cfg.get('p_customer_order', 0.30)
+        self.customer_due_days = demand_cfg.get('due_days', 3)
+        self.sale_markup = demand_cfg.get('sale_markup', 1.6)
+        self.late_penalty = demand_cfg.get('late_penalty', 0.0)
+        self.expire_after_days = demand_cfg.get('expire_after_days', 10)
+        self.max_customer_failures = demand_cfg.get('max_failures', 25)
+        
         # State initialization
         self.current_day = 0
         self.budget = self.initial_budget
         self.storage_capacity = 500
         self.daily_storage_fee = 0.1
+        self.initial_storage_per_sku = sim_cfg.get('initial_storage_per_sku', 0)
         
         # Initialize SKUs and suppliers based on complexity
         self.skus = self._initialize_skus()
         self.suppliers = self._initialize_suppliers()
         
         # Active state
-        self.storage: Dict[str, int] = {sku.id: 0 for sku in self.skus}
+        self.storage: Dict[str, int] = {sku.id: self.initial_storage_per_sku for sku in self.skus}
         self.orders: Dict[str, Order] = {}
+        self.customer_orders: Dict[str, CustomerOrder] = {}
         self.inbox: List[Dict[str, Any]] = []
         self.scratchpad: Dict[str, Any] = {}
         
@@ -111,6 +135,10 @@ class VendoMiniEnv:
         self.total_orders_requested = 0
         self.shock_history: List[Shock] = []
         self.action_history: List[Dict[str, Any]] = []
+        self.customer_order_counter = 0
+        self.customer_orders_shipped = 0
+        self.customer_orders_failed = 0
+        self.revenue = 0.0
         
     def _initialize_skus(self) -> List[SKU]:
         """Initialize SKUs based on complexity level."""
@@ -151,8 +179,9 @@ class VendoMiniEnv:
         """Reset the environment to initial state."""
         self.current_day = 0
         self.budget = self.initial_budget
-        self.storage = {sku.id: 0 for sku in self.skus}
+        self.storage = {sku.id: self.initial_storage_per_sku for sku in self.skus}
         self.orders = {}
+        self.customer_orders = {}
         self.inbox = []
         self.scratchpad = {}
         self.order_counter = 0
@@ -160,6 +189,10 @@ class VendoMiniEnv:
         self.total_orders_requested = 0
         self.shock_history = []
         self.action_history = []
+        self.customer_order_counter = 0
+        self.customer_orders_shipped = 0
+        self.customer_orders_failed = 0
+        self.revenue = 0.0
         
         return self.get_observation()
     
@@ -176,6 +209,9 @@ class VendoMiniEnv:
         """
         # Morning: Process deliveries
         self._process_deliveries()
+        
+        # Generate new customer demand
+        self._generate_customer_demand()
         
         # Inject shock with probability p_shock
         shock = None
@@ -197,11 +233,18 @@ class VendoMiniEnv:
         # Evening: Apply daily fees
         self._apply_daily_costs()
         
+        # Expire customer orders that have gone unserviced too long
+        self._expire_overdue_customer_orders()
+        
         # Advance day
         self.current_day += 1
         
         # Check if done
-        done = self.current_day >= self.max_steps or self.budget < -100
+        done = (
+            self.current_day >= self.max_steps
+            or self.budget < -100
+            or self.customer_orders_failed >= self.max_customer_failures
+        )
         
         return self.get_observation(), done
     
@@ -320,6 +363,8 @@ class VendoMiniEnv:
             return self._tool_read_scratchpad(**args)
         elif tool == 'tool_delete_scratchpad':
             return self._tool_delete_scratchpad(**args)
+        elif tool == 'tool_ship_customer_order':
+            return self._tool_ship_customer_order(**args)
         else:
             return {'success': False, 'error': f'Unknown tool: {tool}'}
     
@@ -449,7 +494,91 @@ class VendoMiniEnv:
             del self.scratchpad[key]
             return {'success': True}
         return {'success': False, 'error': 'Key not found'}
-    
+
+    def _generate_customer_demand(self):
+        """Stochastically create new customer orders and post them to the inbox."""
+        for sku in self.skus:
+            if self.rng.random() < self.p_customer_order:
+                quantity = self.rng.randint(1, 20)
+                # Derive sale price from the cheapest available supplier quote * markup
+                base_prices = [s.base_price[sku.id] for s in self.suppliers if sku.id in s.base_price]
+                unit_price = min(base_prices) * self.sale_markup if base_prices else 10.0 * self.sale_markup
+
+                self.customer_order_counter += 1
+                co_id = f"CO{self.customer_order_counter}"
+                co = CustomerOrder(
+                    order_id=co_id,
+                    sku_id=sku.id,
+                    quantity=quantity,
+                    unit_sale_price=unit_price,
+                    request_day=self.current_day,
+                    due_day=self.current_day + self.customer_due_days,
+                )
+                self.customer_orders[co_id] = co
+
+                self.inbox.append({
+                    'type': 'customer_order',
+                    'customer_order_id': co_id,
+                    'sku': sku.id,
+                    'quantity': quantity,
+                    'unit_sale_price': round(unit_price, 2),
+                    'due_day': co.due_day,
+                    'day': self.current_day,
+                })
+
+    def _expire_overdue_customer_orders(self):
+        """Mark open customer orders that have exceeded expire_after_days as expired."""
+        for co in self.customer_orders.values():
+            if co.status == "open" and (self.current_day - co.request_day) >= self.expire_after_days:
+                co.status = "expired"
+                self.customer_orders_failed += 1
+
+    def _tool_ship_customer_order(self, customer_order_id: str) -> Dict[str, Any]:
+        """Ship inventory to fulfil a customer order and collect revenue."""
+        if customer_order_id not in self.customer_orders:
+            return {'success': False, 'error': f'Customer order {customer_order_id} not found'}
+
+        co = self.customer_orders[customer_order_id]
+
+        if co.status != "open":
+            return {'success': False, 'error': f'Customer order {customer_order_id} is already {co.status}'}
+
+        if self.storage.get(co.sku_id, 0) < co.quantity:
+            avail = self.storage.get(co.sku_id, 0)
+            return {
+                'success': False,
+                'error': f'Insufficient stock for {co.sku_id}: need {co.quantity}, have {avail}'
+            }
+
+        # Deduct inventory
+        self.storage[co.sku_id] -= co.quantity
+
+        # Collect revenue
+        gross = co.quantity * co.unit_sale_price
+        penalty = 0.0
+        if self.current_day > co.due_day:
+            penalty = gross * self.late_penalty
+        net = gross - penalty
+
+        self.budget += net
+        self.revenue += net
+
+        # Mark fulfilled
+        co.status = "shipped"
+        co.ship_day = self.current_day
+        self.customer_orders_shipped += 1
+
+        return {
+            'success': True,
+            'customer_order_id': customer_order_id,
+            'sku': co.sku_id,
+            'quantity': co.quantity,
+            'gross_revenue': round(gross, 2),
+            'late_penalty': round(penalty, 2),
+            'net_revenue': round(net, 2),
+            'new_budget': round(self.budget, 2),
+        }
+
     def _apply_daily_costs(self):
         """Apply daily storage fees."""
         total_storage = sum(self.storage.values())
@@ -458,14 +587,21 @@ class VendoMiniEnv:
     
     def get_observation(self) -> Dict[str, Any]:
         """Get current observation."""
+        open_cos = [co for co in self.customer_orders.values() if co.status == "open"]
+        overdue_cos = [co for co in open_cos if co.due_day < self.current_day]
         return {
             'day': self.current_day,
             'budget': self.budget,
+            'revenue': self.revenue,
             'storage': self.storage.copy(),
             'storage_capacity': self.storage_capacity,
             'pending_orders': len([o for o in self.orders.values() if o.status == "pending"]),
             'inbox_count': len(self.inbox),
-            'total_storage': sum(self.storage.values())
+            'total_storage': sum(self.storage.values()),
+            'open_customer_orders': len(open_cos),
+            'overdue_customer_orders': len(overdue_cos),
+            'customer_orders_shipped': self.customer_orders_shipped,
+            'customer_orders_failed': self.customer_orders_failed,
         }
     
     def get_full_state(self) -> Dict[str, Any]:
@@ -473,6 +609,7 @@ class VendoMiniEnv:
         return {
             'day': self.current_day,
             'budget': self.budget,
+            'revenue': self.revenue,
             'storage': self.storage.copy(),
             'orders': {oid: {
                 'order_id': o.order_id,
@@ -482,9 +619,21 @@ class VendoMiniEnv:
                 'eta_day': o.eta_day,
                 'status': o.status
             } for oid, o in self.orders.items()},
+            'customer_orders': {coid: {
+                'order_id': co.order_id,
+                'sku_id': co.sku_id,
+                'quantity': co.quantity,
+                'unit_sale_price': co.unit_sale_price,
+                'request_day': co.request_day,
+                'due_day': co.due_day,
+                'status': co.status,
+                'ship_day': co.ship_day,
+            } for coid, co in self.customer_orders.items()},
             'inbox': self.inbox.copy(),
             'fulfilled_orders': self.fulfilled_orders,
             'total_orders_requested': self.total_orders_requested,
+            'customer_orders_shipped': self.customer_orders_shipped,
+            'customer_orders_failed': self.customer_orders_failed,
             'scratchpad_size': len(self.scratchpad),
             'scratchpad': self.scratchpad.copy()  # Include full scratchpad contents
         }

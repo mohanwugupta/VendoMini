@@ -1,0 +1,315 @@
+{
+  "metadata": {
+    "run_id": "run_1771291958_42",
+    "model": "unknown",
+    "crashed": true,
+    "crash_type": "looping"
+  },
+  "logs": [
+    {
+      "relative_timestamp": 0,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 0,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 1,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 2,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 1,
+      "event": "tool_calls",
+      "payload": "tool_check_budget"
+    },
+    {
+      "relative_timestamp": 2,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 3,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 4,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 3,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 4,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 5,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 6,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 5,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 7,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 8,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 6,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 9,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 7,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 10,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 11,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 12,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 8,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 9,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 10,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 11,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 12,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 13,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 14,
+      "event": "tool_calls",
+      "payload": "tool_check_budget"
+    },
+    {
+      "relative_timestamp": 15,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 16,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 17,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 18,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 19,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 20,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 21,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 22,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 23,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 24,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 25,
+      "event": "tool_calls",
+      "payload": "tool_check_budget"
+    },
+    {
+      "relative_timestamp": 26,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 27,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 28,
+      "event": "tool_calls",
+      "payload": "tool_check_budget"
+    },
+    {
+      "relative_timestamp": 29,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 30,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 31,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 32,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 33,
+      "event": "tool_calls",
+      "payload": "tool_check_budget"
+    },
+    {
+      "relative_timestamp": 34,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 35,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 36,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 37,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 38,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 39,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 40,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 41,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 42,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 43,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 44,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 45,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 46,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 47,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    }
+  ]
+}

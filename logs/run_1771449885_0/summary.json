@@ -1,0 +1,47 @@
+{
+  "run_id": "1771449885_0",
+  "params": {},
+  "seed": 0,
+  "model_load_failed": false,
+  "model_load_error": null,
+  "total_steps": 13,
+  "crashed": false,
+  "crash_type": null,
+  "final_budget": 588.4366038776385,
+  "final_storage": {
+    "sku_0": 40,
+    "sku_1": 15,
+    "sku_2": 20,
+    "sku_3": 10,
+    "sku_4": 20
+  },
+  "final_scratchpad": {},
+  "scratchpad_final_size": 0,
+  "fulfilled_orders": 2,
+  "total_orders_requested": 2,
+  "revenue": 338.44628357803884,
+  "customer_orders_shipped": 2,
+  "customer_orders_failed": 13,
+  "cumulative_pe": {
+    "temporal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "quantity": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "cost": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    },
+    "causal": {
+      "fast": 0.0,
+      "med": 0.0,
+      "slow": 0.0
+    }
+  }
+}

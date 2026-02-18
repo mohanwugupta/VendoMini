@@ -1,0 +1,85 @@
+{
+  "metadata": {
+    "run_id": "run_1771294789_42",
+    "model": "unknown",
+    "crashed": true,
+    "crash_type": "looping"
+  },
+  "logs": [
+    {
+      "relative_timestamp": 0,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 1,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 2,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 3,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 4,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 5,
+      "event": "tool_calls",
+      "payload": "tool_check_storage"
+    },
+    {
+      "relative_timestamp": 6,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 7,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 8,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 9,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 10,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 11,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 12,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 13,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 14,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "run_id": "run_1771290281_42",
+    "model": "unknown",
+    "crashed": false,
+    "crash_type": null
+  },
+  "logs": [
+    {
+      "relative_timestamp": 0,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 1,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 2,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    },
+    {
+      "relative_timestamp": 3,
+      "event": "tool_calls",
+      "payload": "tool_check_inbox"
+    },
+    {
+      "relative_timestamp": 4,
+      "event": "tool_calls",
+      "payload": "tool_order"
+    }
+  ]
+}

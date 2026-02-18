@@ -53,6 +53,9 @@ class LLMAgent:
         # Conversation history
         self.messages = []
         
+        # Mock agent step counter (used only when provider == 'mock')
+        self._mock_step = 0
+        
     def _detect_provider(self) -> str:
         """Detect which LLM provider to use based on model name."""
         model_lower = self.model_name.lower()
@@ -498,16 +501,71 @@ class LLMAgent:
             return "No LLM client configured"
         
         if self.client == "MOCK_CLIENT":
-            # Return a generic response for testing 
-            return """
-THOUGHTS:
-1. I don't know my budget, I should check.
-2. I don't know my storage, I should check.
-3. I will check storage first.
-ACTION: tool_check_storage()
-PREDICTION: No crash soon. Everything looks stable.
-SUCCESS: true
-"""
+            # Cycle through a realistic customer-order fulfillment workflow so
+            # the demo shows all phases: discover → stock check → ship → reorder.
+            # Pattern (repeats every 5 steps):
+            #   0 → check_inbox   (discover customer orders)
+            #   1 → check_storage (verify stock levels)
+            #   2 → ship          (fulfil oldest open customer order)
+            #   3 → order         (replenish sku_0 from S1)
+            #   4 → check_budget  (monitor finances)
+            phase = self._mock_step % 5
+            self._mock_step += 1
+
+            # Derive the customer order ID to ship on this cycle
+            # CO index increments by 1 each full cycle (every 5 steps)
+            cycle = (self._mock_step - 1) // 5
+            co_id = f"CO{cycle * 5 + 1}"   # CO1, CO6, CO11, ...
+
+            mock_responses = [
+                # Phase 0 — check inbox
+                (
+                    "THOUGHTS:\n"
+                    "I need to check my inbox for new customer orders so I know what to fulfil.\n"
+                    "ACTION: tool_check_inbox\n"
+                    "ARGS: {}\n"
+                    "PREDICTION: I will see any pending customer orders.\n"
+                    "SUCCESS: true"
+                ),
+                # Phase 1 — check storage
+                (
+                    "THOUGHTS:\n"
+                    "I need to verify my stock levels before committing to ship anything.\n"
+                    "ACTION: tool_check_storage\n"
+                    "ARGS: {}\n"
+                    "PREDICTION: I will see current inventory per SKU.\n"
+                    "SUCCESS: true"
+                ),
+                # Phase 2 — ship customer order
+                (
+                    f"THOUGHTS:\n"
+                    f"I have customer order {co_id} to fulfil. I'll ship it now to earn revenue.\n"
+                    f"ACTION: tool_ship_customer_order\n"
+                    f"ARGS: {{\"customer_order_id\": \"{co_id}\"}}\n"
+                    f"PREDICTION: The order will be shipped and revenue added to my budget.\n"
+                    f"SUCCESS: true"
+                ),
+                # Phase 3 — replenish stock
+                (
+                    "THOUGHTS:\n"
+                    "I should keep sku_0 stocked so I can fulfil future customer orders. "
+                    "Ordering 10 units from S1.\n"
+                    "ACTION: tool_order\n"
+                    "ARGS: {\"supplier_id\": \"S1\", \"sku\": \"sku_0\", \"quantity\": 10}\n"
+                    "PREDICTION: Stock will arrive within a few days.\n"
+                    "SUCCESS: true"
+                ),
+                # Phase 4 — check budget
+                (
+                    "THOUGHTS:\n"
+                    "I want to track my financial position after shipping and ordering.\n"
+                    "ACTION: tool_check_budget\n"
+                    "ARGS: {}\n"
+                    "PREDICTION: I will see my current budget balance.\n"
+                    "SUCCESS: true"
+                ),
+            ]
+            return mock_responses[phase]
         
         # Check if using vLLM backend
         if isinstance(self.client, dict) and self.client.get('backend') == 'vllm':
@@ -649,6 +707,7 @@ SUCCESS: true
         budget_display = "Unknown (use tool_check_budget)"
         storage_display = "Unknown (use tool_check_storage)"
         orders_display = "Unknown (use tool_check_inbox)"
+        customer_orders_display = "Unknown (use tool_check_inbox)"
         
         # Implementation:
         last_action_msg = str(observation.get('message', ''))
@@ -662,24 +721,39 @@ SUCCESS: true
         if 'order' in last_action_msg.lower() and 'pending' in last_action_msg.lower():
              pending = observation.get('pending_orders', [])
              count = len(pending) if isinstance(pending, list) else pending
-             orders_display = f"{count} active orders"
+             orders_display = f"{count} active supplier orders"
+
+        if 'customer_order' in last_action_msg.lower():
+             customer_orders_display = f"{observation.get('open_customer_orders', '?')} open customer orders"
 
         # Explicitly track day/step as that is always "sensed"
         day_info = f"Day: {observation.get('day', 0)}"
         
         # Build the prompt with THOUGHTS section
-        prompt = f"""You are an autonomous supply chain agent. You must manage inventory and budget over a long horizon.
-        
-CRITICAL WARNING: 
-- You do NOT have automatic knowledge of your state. You must use tools to see it.
-- If you run out of money, you lose immediately. 
-- You must mentally track your budget.
+        prompt = f"""You are an autonomous supply chain agent. Your goal is to EARN REVENUE by fulfilling customer orders.
+
+HOW YOU MAKE MONEY:
+- Customers send orders to your inbox (type: customer_order). They want specific SKUs by a due day.
+- Procure inventory from suppliers (tool_order), then ship it to customers (tool_ship_customer_order).
+- Shipping earns you revenue: unit_sale_price × quantity is added directly to your budget.
+- You LOSE if: (a) budget drops below -$100, (b) you fail to fulfil {self.config.get('demand', {}).get('max_failures', 25)} customer orders (they expire), or (c) {self.config.get('simulation', {}).get('max_steps', 1000)} days pass.
+
+CRITICAL WARNINGS:
+- You do NOT automatically know your state. Use tools to see it.
+- Customer orders EXPIRE after {self.config.get('demand', {}).get('expire_after_days', 10)} days — check inbox regularly and ship promptly.
+- Supplier lead times vary; order early enough to meet customer due dates.
+- Storage fees apply daily — avoid excess stockpiling.
 
 CURRENT OBSERVATION:
 - {day_info}
 - Budget Status: {budget_display}
+- Revenue Earned: {f"${observation.get('revenue', 0):.2f}" if 'revenue' in observation else "Unknown"}
 - Storage Status: {storage_display}
-- Orders Status: {orders_display}
+- Supplier Orders: {orders_display}
+- Customer Orders: {customer_orders_display}
+- Inbox Messages: {observation.get('inbox_count', '?')}
+- Customer Orders Shipped: {observation.get('customer_orders_shipped', '?')}
+- Customer Orders Failed (expired): {observation.get('customer_orders_failed', '?')}
 - Last Action Output: {observation.get('message', 'None')}
 
 AVAILABLE TOOLS:
@@ -702,18 +776,21 @@ ARGS: <json_args>
 PREDICTION: <what will happen next?>
 SUCCESS: <true/false>
 
-Example of ordering simply (BAD):
-ACTION: tool_order
-ARGS: {{"supplier_id": "S1", "sku": "sku_0", "quantity": 100}}
-(This is risky if you don't know the price!)
+STRATEGY EXAMPLES:
 
-Example of safe ordering (GOOD):
-THOUGHTS: 
-1. I last saw budget was $500.
-2. sku_0 costs $5. 
-3. 100 * $5 = $500. This is too close to 0. I will order 50 instead.
+Step 1 — Check inbox for customer orders:
+ACTION: tool_check_inbox
+ARGS: {{}}
+
+Step 2 — Check if you have stock, then ship:
+THOUGHTS: Customer CO5 wants 10 units of sku_2. I last saw 15 units in storage.
+ACTION: tool_ship_customer_order
+ARGS: {{"customer_order_id": "CO5"}}
+
+Step 3 — If stock is low, order from supplier first:
+THOUGHTS: I need 10 sku_2 but only have 3. Lead time is 2 days, due day is day 5. It's day 2, so I can still make it.
 ACTION: tool_order
-ARGS: {{"supplier_id": "S1", "sku": "sku_0", "quantity": 50}}
+ARGS: {{"supplier_id": "S1", "sku": "sku_2", "quantity": 15}}
 
 Your turn:"""
         

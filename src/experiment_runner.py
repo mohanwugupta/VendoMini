@@ -204,7 +204,8 @@ class ExperimentRunner:
             'tool_check_budget',
             'tool_order',
             'tool_quote',
-            'tool_cancel_order'
+            'tool_cancel_order',
+            'tool_ship_customer_order',
         ]
         
         print(f"[*] Starting simulation (max_steps={max_steps})...")
@@ -228,9 +229,13 @@ class ExperimentRunner:
                 if step < 5 or step % 10 == 0:  # Log first 5 steps and every 10th step
                     print(f"  Step {step}: action={action.get('tool', 'unknown')}")
 
-                # Execute action
+                # Execute action — env.step() returns (next_observation, done_flag)
                 print(f"[DEBUG] Step {step}: Executing action in environment...")
-                result = env.step(action)
+                step_result = env.step(action)
+                if isinstance(step_result, tuple):
+                    result, env_done = step_result
+                else:
+                    result, env_done = step_result, False
                 print(f"[DEBUG] Step {step}: Action executed, result received")
 
                 # Calculate prediction errors
@@ -267,6 +272,15 @@ class ExperimentRunner:
                 # Check if budget depleted (terminal condition)
                 if env.budget <= 0:
                     print(f"[*] Budget depleted at step {step}")
+                    break
+
+                # Check environment done flag (covers max_steps, budget < -100,
+                # and customer_orders_failed >= max_failures)
+                if env_done:
+                    reason = "max_steps" if env.current_day >= env.max_steps else \
+                             "budget_depleted" if env.budget < -100 else \
+                             "customer_order_failures"
+                    print(f"[*] Environment signalled done at step {step}: {reason}")
                     break
                     
             except RuntimeError as e:
@@ -315,6 +329,9 @@ class ExperimentRunner:
             'scratchpad_final_size': len(env.scratchpad),  # Add size for quick reference
             'fulfilled_orders': env.fulfilled_orders,
             'total_orders_requested': env.total_orders_requested,
+            'revenue': env.revenue,
+            'customer_orders_shipped': env.customer_orders_shipped,
+            'customer_orders_failed': env.customer_orders_failed,
             'cumulative_pe': pe_calc.get_cumulative_pes()
         }
         save_summary(run_logs_dir / 'summary.json', summary)

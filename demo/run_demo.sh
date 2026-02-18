@@ -1,12 +1,17 @@
 #!/bin/bash
-# demo/run_demo.sh - Minimal reproduction script
+# demo/run_demo.sh — Customer order fulfillment demo
 
 # Ensure we are in the project root
 cd "$(dirname "$0")/.." || exit
 
-echo "--------------------------------------------------------"
-echo "🛒  VendoMini — Prediction Error Crash Simulation Demo  "
-echo "--------------------------------------------------------"
+echo "============================================================"
+echo "🛒  VendoMini — Customer Order Fulfillment Demo             "
+echo "============================================================"
+echo ""
+echo "Goal: Procure inventory from suppliers, ship to customers,"
+echo "      earn revenue, and avoid budget ruin or too many"
+echo "      expired customer orders."
+echo ""
 
 # 1. Setup virtualenv (optional for demo, good for isolation)
 if [ ! -d "venv_demo" ]; then
@@ -17,49 +22,66 @@ fi
 source venv_demo/bin/activate
 
 # 2. Install minimal dependencies
-echo "[*] Installing minimal dependencies..."
+echo "[*] Installing dependencies..."
 pip install -r requirements.txt -q
 
 # 3. Run the experiment
-echo "[*] Running minimal simulation (10 steps)..."
-# Using the mock model config we created
-# Force output_dir to be results/demo in the command line to be safe, though config has it
+echo ""
+echo "[*] Running simulation (15 steps, mock LLM, no API key required)..."
 python run_experiment.py --config demo/demo_config.yaml --n-jobs 1
 
-# 4. Show results
 echo ""
-echo "--------------------------------------------------------"
-echo "✅  Experiment Complete!"
-echo "--------------------------------------------------------"
+echo "============================================================"
+echo "✅  Simulation Complete!"
+echo "============================================================"
 
-# The output might be in results/ or results/demo depending on how config is parsed
-# Let's check both
-TARGET_DIR="results/demo"
-if [ ! -d "$TARGET_DIR" ]; then
-    # Fallback if it wrote to root results
-    if [ -f "results/aggregated_results.json" ]; then
-        TARGET_DIR="results"
-    fi
-fi
+# 4. Find and display results
+LOGS_DIR="logs"
+LATEST_RUN=$(ls -dt "${LOGS_DIR}"/run_*/ 2>/dev/null | head -1)
 
-ls -lh "$TARGET_DIR"
-echo ""
-echo "[*] Sample of the summary.json output:"
+if [ -n "$LATEST_RUN" ]; then
+    SUMMARY="${LATEST_RUN}summary.json"
+    echo ""
+    echo "📁 Run folder: ${LATEST_RUN}"
+    echo ""
 
-# Check for aggregated results first
-if [ -f "$TARGET_DIR/aggregated_results.json" ]; then
-    echo "Found aggregated results in $TARGET_DIR/aggregated_results.json"
-    cat "$TARGET_DIR/aggregated_results.json"
-else
-    # Find the latest run folder
-    LATEST_RUN=$(ls -dt $TARGET_DIR/run_*/ | head -1)
-    if [ -n "$LATEST_RUN" ]; then
-        echo "Found run in: $LATEST_RUN"
-        cat "${LATEST_RUN}summary.json"
+    if [ -f "$SUMMARY" ]; then
+        echo "📊 Run Summary:"
+        echo "------------------------------------------------------------"
+        # Use python to pretty-print the relevant fields
+        python3 - "$SUMMARY" <<'PYEOF'
+import json, sys
+
+with open(sys.argv[1]) as f:
+    s = json.load(f)
+
+budget  = s.get('final_budget', 0)
+revenue = s.get('revenue', 0)
+shipped = s.get('customer_orders_shipped', 0)
+failed  = s.get('customer_orders_failed', 0)
+steps   = s.get('total_steps', 0)
+crashed = s.get('crashed', False)
+ctype   = s.get('crash_type', 'N/A')
+
+print(f"  Steps completed          : {steps}")
+print(f"  Final budget             : ${budget:.2f}")
+print(f"  Total revenue earned     : ${revenue:.2f}")
+print(f"  Customer orders shipped  : {shipped}")
+print(f"  Customer orders failed   : {failed}  (expired without being shipped)")
+print(f"  Simulation ended (crash) : {crashed}  [{ctype}]")
+PYEOF
+        echo "------------------------------------------------------------"
+        echo ""
+        echo "💡 Key insight:"
+        echo "   Revenue is earned each time the agent ships a customer order."
+        echo "   The agent loses if budget < -\$100 OR ≥10 orders expire."
     else
-        echo "No results found to display."
+        echo "(summary.json not found in ${LATEST_RUN})"
     fi
+else
+    echo "(No run folders found in ${LOGS_DIR}/)"
 fi
 
 echo ""
-echo "[*] Demo finished successfully."
+echo "[*] Demo finished."
+
