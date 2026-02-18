@@ -141,8 +141,8 @@ class ExperimentRunner:
                 print(f"[ERROR] {model_load_error}")
                 print(f"[ERROR] Experiment cannot run without a working LLM - aborting")
                 
-                # Return early with error info
-                return {
+                # Save summary before returning so the run directory is never empty
+                early_summary = {
                     'run_id': run_id,
                     'params': params,
                     'seed': seed,
@@ -153,6 +153,9 @@ class ExperimentRunner:
                     'crash_type': None,
                     'final_budget': env.budget,
                     'final_storage': env.storage.copy(),
+                    'revenue': 0.0,
+                    'customer_orders_shipped': 0,
+                    'customer_orders_failed': 0,
                     'cumulative_pe': {
                         'temporal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
                         'quantity': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
@@ -160,6 +163,8 @@ class ExperimentRunner:
                         'causal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0}
                     }
                 }
+                save_summary(run_logs_dir / 'summary.json', early_summary)
+                return early_summary
             else:
                 print(f"[*] LLM client loaded: provider={agent.provider}")
         except Exception as e:
@@ -169,8 +174,8 @@ class ExperimentRunner:
             import traceback
             traceback.print_exc()
             
-            # Return early with error info
-            return {
+            # Save summary before returning so the run directory is never empty
+            early_summary = {
                 'run_id': run_id,
                 'params': params,
                 'seed': seed,
@@ -181,6 +186,9 @@ class ExperimentRunner:
                 'crash_type': None,
                 'final_budget': env.budget,
                 'final_storage': env.storage.copy(),
+                'revenue': 0.0,
+                'customer_orders_shipped': 0,
+                'customer_orders_failed': 0,
                 'cumulative_pe': {
                     'temporal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
                     'quantity': {'fast': 0.0, 'med': 0.0, 'slow': 0.0},
@@ -188,6 +196,8 @@ class ExperimentRunner:
                     'causal': {'fast': 0.0, 'med': 0.0, 'slow': 0.0}
                 }
             }
+            save_summary(run_logs_dir / 'summary.json', early_summary)
+            return early_summary
         
         print(f"[*] Initializing PE calculator and crash detector...")
         pe_calc = PECalculator()
@@ -288,8 +298,8 @@ class ExperimentRunner:
                 error_msg = str(e)
                 print(f"[ERROR] RuntimeError at step {step}: {error_msg}")
                 
-                # Return with error status
-                return {
+                # Save summary before returning so the run directory is never empty
+                runtime_summary = {
                     'run_id': run_id,
                     'params': params,
                     'seed': seed,
@@ -300,8 +310,13 @@ class ExperimentRunner:
                     'crash_type': 'model_error',
                     'final_budget': env.budget,
                     'final_storage': env.storage.copy(),
+                    'revenue': env.revenue,
+                    'customer_orders_shipped': env.customer_orders_shipped,
+                    'customer_orders_failed': env.customer_orders_failed,
                     'cumulative_pe': pe_calc.get_cumulative_pes()
                 }
+                save_summary(run_logs_dir / 'summary.json', runtime_summary)
+                return runtime_summary
                     
             except Exception as e:
                 print(f"[ERROR] Exception at step {step}: {e}")
