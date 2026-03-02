@@ -128,18 +128,35 @@ class LLMAgent:
                     print(f"[*] TRANSFORMERS_CACHE: {transformers_cache}")
                 
                 # Try to find the model in the local directory structure
-                # Models might be in: models/org--name/ format (from --local-dir downloads)
+                # Pattern 1: flat --local-dir download  → {HF_HOME}/{org}--{model}/
+                # Pattern 2: standard HF hub cache      → {HF_HOME}/models--{org}--{model}/snapshots/{hash}/
                 model_to_load = self.model_name
-                
-                # Check if model exists in simple directory format (from --local-dir)
+
                 if hf_home:
-                    simple_model_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
-                    if os.path.exists(simple_model_dir):
-                        print(f"[*] Found model in simple directory: {simple_model_dir}")
-                        model_to_load = simple_model_dir
+                    flat_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
+                    hub_dir  = os.path.join(hf_home, 'models--' + self.model_name.replace('/', '--'))
+
+                    if os.path.isdir(flat_dir):
+                        print(f"[*] Found model (flat --local-dir): {flat_dir}")
+                        model_to_load = flat_dir
+                    elif os.path.isdir(hub_dir):
+                        # Resolve the most recent snapshot inside the HF hub cache dir
+                        snapshots_dir = os.path.join(hub_dir, 'snapshots')
+                        if os.path.isdir(snapshots_dir):
+                            snapshots = sorted(os.listdir(snapshots_dir))
+                            if snapshots:
+                                snapshot_path = os.path.join(snapshots_dir, snapshots[-1])
+                                print(f"[*] Found model (HF hub cache snapshot): {snapshot_path}")
+                                model_to_load = snapshot_path
+                            else:
+                                print(f"[*] Hub cache dir exists but has no snapshots: {hub_dir}")
+                        else:
+                            print(f"[*] Hub cache dir exists but no 'snapshots' subdir: {hub_dir}")
                     else:
-                        print(f"[*] Simple directory not found: {simple_model_dir}")
-                        print(f"[*] Will try using model name: {self.model_name}")
+                        print(f"[*] Model not found locally. Checked:")
+                        print(f"    flat:  {flat_dir}")
+                        print(f"    hub:   {hub_dir}")
+                        print(f"[*] Will try model name with local_files_only=True: {self.model_name}")
                 
                 # Load tokenizer
                 print(f"[*] Loading tokenizer from: {model_to_load}")
@@ -405,12 +422,30 @@ class LLMAgent:
         # Find model path
         hf_home = os.getenv('HF_HOME')
         model_to_load = self.model_name
-        
+
         if hf_home:
-            simple_model_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
-            if os.path.exists(simple_model_dir):
-                print(f"[*] Found model in: {simple_model_dir}")
-                model_to_load = simple_model_dir
+            flat_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
+            hub_dir  = os.path.join(hf_home, 'models--' + self.model_name.replace('/', '--'))
+
+            if os.path.isdir(flat_dir):
+                print(f"[*] Found model (flat --local-dir): {flat_dir}")
+                model_to_load = flat_dir
+            elif os.path.isdir(hub_dir):
+                snapshots_dir = os.path.join(hub_dir, 'snapshots')
+                if os.path.isdir(snapshots_dir):
+                    snapshots = sorted(os.listdir(snapshots_dir))
+                    if snapshots:
+                        snapshot_path = os.path.join(snapshots_dir, snapshots[-1])
+                        print(f"[*] Found model (HF hub cache snapshot): {snapshot_path}")
+                        model_to_load = snapshot_path
+                    else:
+                        print(f"[*] Hub cache dir exists but has no snapshots: {hub_dir}")
+                else:
+                    print(f"[*] Hub cache dir exists but no 'snapshots' subdir: {hub_dir}")
+            else:
+                print(f"[*] Model not found locally. Checked:")
+                print(f"    flat:  {flat_dir}")
+                print(f"    hub:   {hub_dir}")
         
         # Initialize vLLM
         # vLLM automatically uses all available GPUs and optimizations

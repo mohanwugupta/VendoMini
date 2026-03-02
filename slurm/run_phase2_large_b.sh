@@ -24,9 +24,9 @@ else
     source activate vendomini
 fi
 
-export HF_HOME=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
-export HUGGINGFACE_HUB_CACHE=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
-export TRANSFORMERS_CACHE=/scratch/gpfs/JORDANAT/mg9965/VendoMini/models
+export HF_HOME=/scratch/gpfs/JORDANAT/mg9965/models
+export HUGGINGFACE_HUB_CACHE=/scratch/gpfs/JORDANAT/mg9965/models
+export TRANSFORMERS_CACHE=/scratch/gpfs/JORDANAT/mg9965/models
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
