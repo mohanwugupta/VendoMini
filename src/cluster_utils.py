@@ -36,18 +36,23 @@ def setup_cluster_paths(base_dir: Optional[str] = None, models_dir: Optional[str
     
     # Set up models directory if provided
     if models_dir is None:
-        # Try to use a models subdirectory in base_dir
-        models_dir = str(base_path / 'models')
-    
+        # Respect HF_HOME already exported by the SLURM script; only fall back to
+        # base_dir/models if no environment variable is present.
+        models_dir = (
+            os.environ.get('HF_HOME')
+            or os.environ.get('HUGGINGFACE_HUB_CACHE')
+            or str(base_path / 'models')
+        )
+
     paths['models'] = models_dir
-    
+
     # Set HuggingFace cache environment variables to use local models directory
     # This prevents re-downloading models that are already on the cluster
     os.environ['HF_HOME'] = models_dir
     os.environ['HUGGINGFACE_HUB_CACHE'] = models_dir
     os.environ['TRANSFORMERS_CACHE'] = models_dir
     os.environ['HF_DATASETS_CACHE'] = models_dir
-    
+
     print(f"[*] HuggingFace cache set to: {models_dir}")
     
     # Create directories if they don't exist
