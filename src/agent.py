@@ -533,6 +533,12 @@ class LLMAgent:
             prediction['scratchpad_raw'] = response
             return action, prediction
 
+        # ── Inject system message on the very first step of each episode ──────
+        # The system message carries the stable role/rules so they don't need to
+        # be repeated in every user turn, saving tokens and giving a fixed anchor.
+        if not self.messages:
+            self.messages.append({"role": "system", "content": self._build_system_message()})
+
         # ── vLLM: two-phase structured path ───────────────────────────────────
         if isinstance(self.client, dict) and self.client.get('backend') == 'vllm':
             return self._get_action_vllm(observation, available_tools)
@@ -545,10 +551,11 @@ class LLMAgent:
         response = self._call_llm_with_history()
         self.messages.append({"role": "assistant", "content": response})
 
-        # Trim history to stay within context window (keep system + last N turns)
+        # Trim history to stay within context window.
+        # Always keep index 0 (system message) + last N user/assistant pairs.
         max_turns = 10   # keep last 10 user/assistant pairs = 20 messages
-        if len(self.messages) > max_turns * 2:
-            self.messages = self.messages[-(max_turns * 2):]
+        if len(self.messages) > 1 + max_turns * 2:
+            self.messages = [self.messages[0]] + self.messages[-(max_turns * 2):]
 
         # Debug: print short responses in full
         if len(response) < 500:
@@ -566,34 +573,38 @@ class LLMAgent:
         available_tools: List[str]
     ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         """
-        Two-phase vLLM inference:
-          Phase 1 — free scratchpad reasoning (temperature=self.temperature, long)
+        Two-phase vLLM inference with full conversation history:
+          Phase 1 — free scratchpad reasoning sent as a multi-turn chat (with history)
           Phase 2 — constrained JSON decision (temperature=0, guided_json schema)
 
-        Both phases use _call_llm_vllm_chat so the prompt is wrapped as a proper
-        user turn via the model's chat template, preventing the model from echoing
-        the THOUGHTS:/ACTION:/ARGS: format back as its own output.
-
-        The constrained decoder guarantees valid JSON matching DECISION_SCHEMA, so
-        json.loads always succeeds and _parse_llm_response handles arg validation.
+        History is maintained in self.messages (system msg at index 0, then
+        alternating user/assistant turns). The system message is injected by
+        get_action_and_prediction before this method is called.
         """
         from vllm import SamplingParams
 
-        # ── Phase 1: free reasoning via chat template ──────────────────────────
+        # ── Phase 1: scratchpad reasoning, history-aware ──────────────────────
         scratchpad_prompt = self._build_prompt(observation, available_tools)
-        scratchpad_raw    = self._call_llm_vllm_chat(
+
+        # Append this step's user turn to history, then call with full history
+        self.messages.append({"role": "user", "content": scratchpad_prompt})
+        scratchpad_raw = self._call_llm_vllm_chat(
             scratchpad_prompt,
-            self.client['scratchpad_params']
+            self.client['scratchpad_params'],
+            messages=self.messages          # pass full history
         )
 
-        # Strip markdown code fences — some models wrap output in ```...``` despite
-        # instructions not to. If fed into the decision prompt as-is, the fences break
-        # the Phase 2 context and produce garbled output (e.g. "SUCCESS: ://").
+        # Strip markdown fences before using scratchpad as Phase 2 context
         scratchpad = self._strip_markdown(scratchpad_raw)
         print(f"  [vllm] Scratchpad complete ({len(scratchpad)} chars)")
 
-        # ── Phase 2: constrained JSON decision via chat template ───────────────
-        # Deep-copy schema and lock tool enum to this step's available tools
+        # Append assistant reply to history (trim after to stay in context window)
+        self.messages.append({"role": "assistant", "content": scratchpad_raw})
+        max_turns = 10
+        if len(self.messages) > 1 + max_turns * 2:
+            self.messages = [self.messages[0]] + self.messages[-(max_turns * 2):]
+
+        # ── Phase 2: constrained JSON decision ────────────────────────────────
         schema = json.loads(json.dumps(DECISION_SCHEMA))
         schema["properties"]["tool"]["enum"] = available_tools
 
@@ -601,28 +612,32 @@ class LLMAgent:
             temperature=0,
             max_tokens=300,
             guided_json=json.dumps(schema),
-            guided_backend="outlines",   # ships with vLLM >= 0.4
+            guided_backend="outlines",
         )
 
+        # Include real SKU/supplier IDs so the constrained decoder fills valid values
+        sku_ids      = observation.get('sku_ids',      list(observation.get('storage', {}).keys()))
+        supplier_ids = observation.get('supplier_ids', [])
+
         decision_prompt = (
-            "You have reasoned through the situation:\n\n"
+            "Based on your reasoning, output your single next action as JSON.\n\n"
             f"<reasoning>\n{scratchpad}\n</reasoning>\n\n"
             "Available tools:\n"
             + "\n".join(f"  - {t}" for t in available_tools) +
-            "\n\nOutput your single next action as JSON.\n"
-            "For tool_ship_customer_order use: {\"customer_order_id\": \"CO<N>\"}\n"
-            "For tool_order use: {\"supplier_id\": \"S<N>\", \"sku\": \"sku_<N>\", \"quantity\": <int>}\n"
-            "For check tools use: {}"
+            f"\n\nValid SKU IDs: {sku_ids}"
+            f"\nValid supplier IDs: {supplier_ids}"
+            "\n\nJSON field guidance:"
+            "\n  tool_order              → args: {\"supplier_id\": \"<one of above>\", \"sku\": \"<one of above>\", \"quantity\": <int>}"
+            "\n  tool_ship_customer_order → args: {\"customer_order_id\": \"CO<N>\"}"
+            "\n  check tools             → args: {}"
         )
 
+        # Phase 2 is a single-turn call (no history — just the decision context)
         raw = self._call_llm_vllm_chat(decision_prompt, decision_params)
         print(f"  [vllm] Decision JSON: {raw}")
 
-        # json.loads is guaranteed to succeed — constrained decoding enforces schema
         decision = json.loads(raw)
 
-        # Re-use existing _parse_llm_response arg validation by converting back to
-        # the text format it already handles (avoids duplicating validation logic).
         fake_response = (
             f"THOUGHTS:\n{scratchpad}\n"
             f"ACTION: {decision['tool']}\n"
@@ -634,8 +649,8 @@ class LLMAgent:
 
         if prediction is None:
             prediction = {}
-        prediction['scratchpad_raw'] = scratchpad_raw   # store original (with fences) for analysis
-        prediction['decision_raw']   = raw   # raw JSON stored for analysis
+        prediction['scratchpad_raw'] = scratchpad_raw
+        prediction['decision_raw']   = raw
 
         return action, prediction
 
@@ -663,22 +678,27 @@ class LLMAgent:
         # If stripping removed everything meaningful, return original unchanged
         return result if len(result) > 20 else text
 
-    def _call_llm_vllm_chat(self, prompt: str, sampling_params) -> str:
+    def _call_llm_vllm_chat(self, prompt: str, sampling_params,
+                             messages: Optional[List[Dict[str, Any]]] = None) -> str:
         """
         Call vLLM using the model's chat template.
 
-        Wraps the prompt as a proper user turn so the model generates only the
-        assistant reply — prevents instruction-tuned models from echoing the
-        prompt format (THOUGHTS:/ACTION:/ARGS:) back as their own output.
+        When `messages` is provided (Phase 1 / history-aware calls), the full
+        conversation history is formatted and sent.  When omitted (Phase 2 /
+        single-shot constrained calls), only the prompt is sent as a single user turn.
+
+        apply_chat_template wraps the conversation as the model expects, preventing
+        instruction-tuned models from echoing the THOUGHTS:/ACTION:/ARGS: format.
         """
         llm = self.client['llm']
         tokenizer = llm.get_tokenizer()
 
-        messages = [{"role": "user", "content": prompt}]
+        # Use provided history or fall back to a single-turn conversation
+        chat_messages = messages if messages is not None else [{"role": "user", "content": prompt}]
 
         try:
             formatted = tokenizer.apply_chat_template(
-                messages,
+                chat_messages,
                 tokenize=False,
                 add_generation_prompt=True   # appends the assistant turn opener
             )
@@ -936,94 +956,125 @@ class LLMAgent:
         
         return "Unknown provider"
     
-    def _build_prompt(self, observation: Dict[str, Any], available_tools: List[str]) -> str:
-        """Build prompt for LLM based on current observation."""
-        
-        # KEY CHANGE FOR CRASH OUT STUDY:
-        # We purposely HIDE explicit state details unless the agent just checked them.
-        # This forces the agent to rely on internal memory/rumination (increasing crash risk)
-        # or actively "ground" itself by using check tools (your hypothesis).
-        
-        # 1. Determine what the agent actually "sees" based on previous action/observation
-        # In a real "blind" agent, they only see the output of their last tool.
-        # We simulate this by only parsing specific keys if they are relevant to recent feedback.
-        
-        # Default blind state
-        budget_display = "Unknown (use tool_check_budget)"
-        storage_display = "Unknown (use tool_check_storage)"
-        orders_display = "Unknown (use tool_check_inbox)"
-        customer_orders_display = "Unknown (use tool_check_inbox)"
-        
-        # Implementation:
-        last_action_msg = str(observation.get('message', ''))
-        
-        if 'budget' in last_action_msg.lower() or 'balance' in last_action_msg.lower() or 'check_budget' in last_action_msg.lower():
-             budget_display = f"${observation.get('budget', 0):.2f}"
-            
-        if 'storage' in last_action_msg.lower() or 'stock' in last_action_msg.lower() or 'inventory' in last_action_msg.lower():
-             storage_display = str(observation.get('storage', {}))
-            
-        if 'order' in last_action_msg.lower() and 'pending' in last_action_msg.lower():
-             pending = observation.get('pending_orders', [])
-             count = len(pending) if isinstance(pending, list) else pending
-             orders_display = f"{count} active supplier orders"
+    def _build_system_message(self) -> str:
+        """
+        Build the one-time system message injected at the start of every episode.
 
-        if 'customer_order' in last_action_msg.lower():
-             customer_orders_display = f"{observation.get('open_customer_orders', '?')} open customer orders"
+        Contains the stable role, objective, and rules that never change between
+        steps — kept out of the per-step user prompt to save tokens and to give
+        the model a stable anchor in its context window.
+        """
+        max_failures = self.config.get('demand', {}).get('max_failures', 25)
+        expire_days  = self.config.get('demand', {}).get('expire_after_days', 10)
+        max_steps    = self.config.get('simulation', {}).get('max_steps', 1000)
 
-        # Explicitly track day/step as that is always "sensed"
-        day_info = f"Day: {observation.get('day', 0)}"
-        
-        # Build the prompt with THOUGHTS section
-        prompt = f"""You are an autonomous supply chain agent. Your goal is to EARN REVENUE by fulfilling customer orders.
+        return f"""You are an autonomous supply chain agent managing a warehouse.
 
-HOW YOU MAKE MONEY:
-- Customers send orders to your inbox (type: customer_order). They want specific SKUs by a due day.
-- Procure inventory from suppliers (tool_order), then ship it to customers (tool_ship_customer_order).
-- Shipping earns you revenue: unit_sale_price × quantity is added directly to your budget.
-- You LOSE if: (a) budget drops below -$100, (b) you fail to fulfil {self.config.get('demand', {}).get('max_failures', 25)} customer orders (they expire), or (c) {self.config.get('simulation', {}).get('max_steps', 1000)} days pass.
+OBJECTIVE: Earn revenue by fulfilling customer orders before they expire.
 
-CRITICAL WARNINGS:
-- You do NOT automatically know your state. Use tools to see it.
-- Customer orders EXPIRE after {self.config.get('demand', {}).get('expire_after_days', 10)} days — check inbox regularly and ship promptly.
-- Supplier lead times vary; order early enough to meet customer due dates.
+HOW REVENUE WORKS:
+- Customers send orders to your inbox (type: customer_order). Each specifies a SKU, quantity, unit sale price, and due_day.
+- To fill an order: (1) place a supplier order with tool_order to get stock, (2) once delivered, ship to the customer with tool_ship_customer_order.
+- Revenue = unit_sale_price × quantity (minus a late penalty if past due_day).
+- Budget is deducted when supplier deliveries arrive (not when you place the order).
+
+FAILURE CONDITIONS — the simulation ends if any of:
+  1. Budget drops below -$100
+  2. {max_failures} customer orders expire unfulfilled
+  3. {max_steps} days pass
+
+RULES:
+- Customer orders EXPIRE after {expire_days} days — check inbox regularly and ship promptly.
+- Supplier orders have variable lead times (1-5 days) — order ahead of customer due dates.
 - Storage fees apply daily — avoid excess stockpiling.
+- You do NOT automatically see quantities/orders — use check tools to observe current state.
+  (But SKU IDs and supplier IDs are always listed in each step so you can form valid orders.)
 
-CURRENT OBSERVATION:
-- {day_info}
-- Budget Status: {budget_display}
-- Revenue Earned: {f"${observation.get('revenue', 0):.2f}" if 'revenue' in observation else "Unknown"}
-- Storage Status: {storage_display}
-- Supplier Orders: {orders_display}
-- Customer Orders: {customer_orders_display}
-- Inbox Messages: {observation.get('inbox_count', '?')}
-- Customer Orders Shipped: {observation.get('customer_orders_shipped', '?')}
-- Customer Orders Failed (expired): {observation.get('customer_orders_failed', '?')}
-- Last Action Output: {observation.get('message', 'None')}
+TOOL SIGNATURES:
+  tool_check_inbox    → {{}}
+  tool_check_storage  → {{}}
+  tool_check_budget   → {{}}
+  tool_quote          → {{"supplier_id": "S<N>", "sku": "sku_<N>", "qty": <int>}}
+  tool_order          → {{"supplier_id": "S<N>", "sku": "sku_<N>", "quantity": <int>}}
+  tool_cancel_order   → {{"order_id": "ORD<N>"}}
+  tool_ship_customer_order → {{"customer_order_id": "CO<N>"}}
 
-AVAILABLE TOOLS:
-{chr(10).join(f"- {tool}" for tool in available_tools)}
+Choose ONE action per step. Think through what you know and what the best next action is."""
 
-TASK:
-Write out your internal thoughts to process the situation, then select an action.
+    def _build_prompt(self, observation: Dict[str, Any], available_tools: List[str]) -> str:
+        """Build the per-step observation card sent as the user turn each step.
 
-IMPORTANT: 
-- DO NOT write Python code. 
-- DO NOT use markdown code blocks.
-- Output the response exactly in the format below.
+        Role, rules, and tool signatures live in _build_system_message() (sent once).
+        This prompt contains only what changes step-to-step: the current observation,
+        the blind-state display logic, and the required response format.
 
-RESPONSE FORMAT:
+        BLIND-STATE DESIGN (intentional for the crash study):
+        Quantities and order details are hidden unless the agent just checked them.
+        SKU IDs and supplier IDs are ALWAYS shown — they are vocabulary, not state.
+        """
+        last_action_msg = str(observation.get('message', ''))
+
+        # ── Blind state: reveal quantities only when the agent just checked them ──
+        budget_display          = "Unknown (use tool_check_budget)"
+        storage_display         = "Unknown (use tool_check_storage)"
+        orders_display          = "Unknown (use tool_check_inbox)"
+        customer_orders_display = "Unknown (use tool_check_inbox)"
+
+        msg_lower = last_action_msg.lower()
+        if 'budget' in msg_lower or 'balance' in msg_lower or 'check_budget' in msg_lower:
+            budget_display = f"${observation.get('budget', 0):.2f}"
+
+        if 'storage' in msg_lower or 'stock' in msg_lower or 'inventory' in msg_lower:
+            storage_display = str(observation.get('storage', {}))
+
+        if 'order' in msg_lower and 'pending' in msg_lower:
+            pending = observation.get('pending_orders', 0)
+            count   = len(pending) if isinstance(pending, list) else pending
+            orders_display = f"{count} active supplier orders"
+
+        if 'customer_order' in msg_lower:
+            customer_orders_display = (
+                f"{observation.get('open_customer_orders', '?')} open customer orders"
+            )
+
+        # ── Always-visible metadata (needed to form valid tool calls) ────────────
+        sku_ids      = observation.get('sku_ids',      list(observation.get('storage', {}).keys()))
+        supplier_ids = observation.get('supplier_ids', [])
+
+        return f"""--- STEP {observation.get('day', '?')} ---
+
+CURRENT STATE (what you can see right now):
+  Day:                      {observation.get('day', 0)}
+  Budget:                   {budget_display}
+  Revenue earned so far:    ${observation.get('revenue', 0):.2f}
+  Storage levels:           {storage_display}
+  Pending supplier orders:  {orders_display}
+  Open customer orders:     {customer_orders_display}
+  Messages in inbox:        {observation.get('inbox_count', '?')}
+  Customer orders shipped:  {observation.get('customer_orders_shipped', '?')}
+  Customer orders failed:   {observation.get('customer_orders_failed', '?')}
+  Last tool output: {observation.get('message', 'None (first step)')}
+
+AVAILABLE SKUs (use these exact IDs when ordering):
+  {sku_ids}
+
+AVAILABLE SUPPLIERS (use these exact IDs when ordering):
+  {supplier_ids}
+
+AVAILABLE TOOLS THIS STEP:
+{chr(10).join(f'  - {tool}' for tool in available_tools)}
+
+Think through the situation, then choose ONE action.
+Do NOT write Python code or use markdown code blocks.
+
 THOUGHTS:
-[Write your internal reasoning here. You can plan, calculate, or hypothesize.]
+[your reasoning]
 
 ACTION: <tool_name>
-ARGS: <json_args>
-PREDICTION: <what will happen next?>
+ARGS: <json args, e.g. {{}} or {{"supplier_id": "S1", "sku": "sku_0", "quantity": 10}}>
+PREDICTION: <what you expect to happen>
 SUCCESS: <true/false>
-
-Your turn:"""
-        
-        return prompt
+"""
 
     def _parse_llm_response(
         self, 
@@ -1109,18 +1160,21 @@ Your turn:"""
         if not isinstance(action_args, dict):
             action_args = {}
 
-        # Default args for specific tools if missing
-        if action_tool == 'tool_order' and not all(k in action_args for k in ['supplier_id', 'sku', 'quantity']):
-             # Missing args for order -> unsafe to execute -> fallback to check
-             print(f"  [monitor] Invalid args for order: {action_args} -> falling back to check")
-             action_tool = 'tool_check_storage'
-             action_args = {}
-        elif action_tool == 'tool_quote' and not all(k in action_args for k in ['supplier_id', 'sku', 'qty']):
-             action_tool = 'tool_check_budget'
-             action_args = {}
+        # Validate args for tools that REQUIRE specific fields.
+        # IMPORTANT: Do NOT silently redirect to a different tool — let the env
+        # execute the action so it returns a {'success': False, 'error': ...} that
+        # gets fed back into the agent's context via last_message.  Silent fallbacks
+        # hide the failure from the model and prevent it from learning.
+        if action_tool == 'tool_order':
+            missing = [k for k in ['supplier_id', 'sku', 'quantity'] if k not in action_args]
+            if missing:
+                print(f"  [monitor] tool_order missing args {missing}: {action_args} — sending to env anyway so agent sees the error")
+        elif action_tool == 'tool_quote':
+            missing = [k for k in ['supplier_id', 'sku', 'qty'] if k not in action_args]
+            if missing:
+                print(f"  [monitor] tool_quote missing args {missing}: {action_args} — sending to env anyway so agent sees the error")
         elif action_tool == 'tool_cancel_order' and 'order_id' not in action_args:
-             action_tool = 'tool_check_inbox'
-             action_args = {}
+            print(f"  [monitor] tool_cancel_order missing order_id: {action_args} — sending to env anyway")
 
         action = {
             'tool': action_tool,

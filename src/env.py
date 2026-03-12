@@ -344,31 +344,36 @@ class VendoMiniEnv:
         """Execute a tool action."""
         tool = action.get('tool')
         args = action.get('args', {})
-        
-        if tool == 'tool_order':
-            return self._tool_order(**args)
-        elif tool == 'tool_check_inbox':
-            return self._tool_check_inbox()
-        elif tool == 'tool_check_storage':
-            return self._tool_check_storage()
-        elif tool == 'tool_check_budget':
-            return self._tool_check_budget()
-        elif tool == 'tool_cancel_order':
-            return self._tool_cancel_order(**args)
-        elif tool == 'tool_quote':
-            return self._tool_quote(**args)
-        elif tool == 'tool_expedite':
-            return self._tool_expedite(**args)
-        elif tool == 'tool_write_scratchpad':
-            return self._tool_write_scratchpad(**args)
-        elif tool == 'tool_read_scratchpad':
-            return self._tool_read_scratchpad(**args)
-        elif tool == 'tool_delete_scratchpad':
-            return self._tool_delete_scratchpad(**args)
-        elif tool == 'tool_ship_customer_order':
-            return self._tool_ship_customer_order(**args)
-        else:
-            return {'success': False, 'error': f'Unknown tool: {tool}'}
+
+        try:
+            if tool == 'tool_order':
+                return self._tool_order(**args)
+            elif tool == 'tool_check_inbox':
+                return self._tool_check_inbox()
+            elif tool == 'tool_check_storage':
+                return self._tool_check_storage()
+            elif tool == 'tool_check_budget':
+                return self._tool_check_budget()
+            elif tool == 'tool_cancel_order':
+                return self._tool_cancel_order(**args)
+            elif tool == 'tool_quote':
+                return self._tool_quote(**args)
+            elif tool == 'tool_expedite':
+                return self._tool_expedite(**args)
+            elif tool == 'tool_write_scratchpad':
+                return self._tool_write_scratchpad(**args)
+            elif tool == 'tool_read_scratchpad':
+                return self._tool_read_scratchpad(**args)
+            elif tool == 'tool_delete_scratchpad':
+                return self._tool_delete_scratchpad(**args)
+            elif tool == 'tool_ship_customer_order':
+                return self._tool_ship_customer_order(**args)
+            else:
+                return {'success': False, 'error': f'Unknown tool: {tool}'}
+        except TypeError as e:
+            # Missing or unexpected keyword arguments — return a clean error so
+            # the agent sees it in last_message and can correct on the next step.
+            return {'success': False, 'error': f'Invalid arguments for {tool}: {e}'}
     
     def _tool_order(self, supplier_id: str, sku: str, quantity: int) -> Dict[str, Any]:
         """Place an order."""
@@ -605,6 +610,10 @@ class VendoMiniEnv:
             'customer_orders_shipped': self.customer_orders_shipped,
             'customer_orders_failed': self.customer_orders_failed,
             'message': self.last_message,
+            # Static metadata — vocabulary the agent needs to form valid actions.
+            # These do not change during a run and are NOT subject to blind-state hiding.
+            'sku_ids': [sku.id for sku in self.skus],
+            'supplier_ids': [s.id for s in self.suppliers],
         }
     
     def get_full_state(self) -> Dict[str, Any]:
