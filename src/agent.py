@@ -561,17 +561,21 @@ class LLMAgent:
           Phase 1 — free scratchpad reasoning (temperature=self.temperature, long)
           Phase 2 — constrained JSON decision (temperature=0, guided_json schema)
 
+        Both phases use _call_llm_vllm_chat so the prompt is wrapped as a proper
+        user turn via the model's chat template, preventing the model from echoing
+        the THOUGHTS:/ACTION:/ARGS: format back as its own output.
+
         The constrained decoder guarantees valid JSON matching DECISION_SCHEMA, so
         json.loads always succeeds and _parse_llm_response handles arg validation.
         """
         from vllm import SamplingParams
 
-        llm = self.client['llm']
-
-        # ── Phase 1: free reasoning ────────────────────────────────────────────
+        # ── Phase 1: free reasoning via chat template ──────────────────────────
         scratchpad_prompt = self._build_prompt(observation, available_tools)
-        scratchpad_out    = llm.generate([scratchpad_prompt], self.client['scratchpad_params'])
-        scratchpad_raw    = scratchpad_out[0].outputs[0].text.strip()
+        scratchpad_raw    = self._call_llm_vllm_chat(
+            scratchpad_prompt,
+            self.client['scratchpad_params']
+        )
 
         # Strip markdown code fences — some models wrap output in ```...``` despite
         # instructions not to. If fed into the decision prompt as-is, the fences break
@@ -579,7 +583,7 @@ class LLMAgent:
         scratchpad = self._strip_markdown(scratchpad_raw)
         print(f"  [vllm] Scratchpad complete ({len(scratchpad)} chars)")
 
-        # ── Phase 2: constrained JSON decision ────────────────────────────────
+        # ── Phase 2: constrained JSON decision via chat template ───────────────
         # Deep-copy schema and lock tool enum to this step's available tools
         schema = json.loads(json.dumps(DECISION_SCHEMA))
         schema["properties"]["tool"]["enum"] = available_tools
@@ -602,8 +606,7 @@ class LLMAgent:
             "For check tools use: {}"
         )
 
-        decision_out = llm.generate([decision_prompt], decision_params)
-        raw          = decision_out[0].outputs[0].text.strip()
+        raw = self._call_llm_vllm_chat(decision_prompt, decision_params)
         print(f"  [vllm] Decision JSON: {raw}")
 
         # json.loads is guaranteed to succeed — constrained decoding enforces schema
@@ -630,18 +633,52 @@ class LLMAgent:
     @staticmethod
     def _strip_markdown(text: str) -> str:
         """Remove markdown code fences that some models emit despite being told not to."""
+        import re
         lines = text.split('\n')
         cleaned = []
         in_fence = False
         for line in lines:
+            # Match ``` with optional language tag: ```python, ```json, ``` etc.
             if line.strip().startswith('```'):
                 in_fence = not in_fence
                 continue          # drop the fence line itself
             if not in_fence:
                 cleaned.append(line)
+        # If we ended mid-fence (odd number of fences), toggle got out of sync —
+        # fall back to regex strip of all fence markers instead.
+        if in_fence:
+            text = re.sub(r'```[\w]*\n?', '', text)
+            text = re.sub(r'```', '', text)
+            return text.strip()
         result = '\n'.join(cleaned).strip()
         # If stripping removed everything meaningful, return original unchanged
         return result if len(result) > 20 else text
+
+    def _call_llm_vllm_chat(self, prompt: str, sampling_params) -> str:
+        """
+        Call vLLM using the model's chat template.
+
+        Wraps the prompt as a proper user turn so the model generates only the
+        assistant reply — prevents instruction-tuned models from echoing the
+        prompt format (THOUGHTS:/ACTION:/ARGS:) back as their own output.
+        """
+        llm = self.client['llm']
+        tokenizer = llm.get_tokenizer()
+
+        messages = [{"role": "user", "content": prompt}]
+
+        try:
+            formatted = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True   # appends the assistant turn opener
+            )
+        except Exception:
+            # Tokenizer has no chat template — fall back to raw prompt
+            formatted = prompt
+
+        outputs = llm.generate([formatted], sampling_params)
+        return outputs[0].outputs[0].text.strip()
     
     def _call_llm(self, prompt: str) -> str:
         """
