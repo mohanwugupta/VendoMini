@@ -571,7 +571,12 @@ class LLMAgent:
         # ── Phase 1: free reasoning ────────────────────────────────────────────
         scratchpad_prompt = self._build_prompt(observation, available_tools)
         scratchpad_out    = llm.generate([scratchpad_prompt], self.client['scratchpad_params'])
-        scratchpad        = scratchpad_out[0].outputs[0].text.strip()
+        scratchpad_raw    = scratchpad_out[0].outputs[0].text.strip()
+
+        # Strip markdown code fences — some models wrap output in ```...``` despite
+        # instructions not to. If fed into the decision prompt as-is, the fences break
+        # the Phase 2 context and produce garbled output (e.g. "SUCCESS: ://").
+        scratchpad = self._strip_markdown(scratchpad_raw)
         print(f"  [vllm] Scratchpad complete ({len(scratchpad)} chars)")
 
         # ── Phase 2: constrained JSON decision ────────────────────────────────
@@ -617,10 +622,26 @@ class LLMAgent:
 
         if prediction is None:
             prediction = {}
-        prediction['scratchpad_raw'] = scratchpad
+        prediction['scratchpad_raw'] = scratchpad_raw   # store original (with fences) for analysis
         prediction['decision_raw']   = raw   # raw JSON stored for analysis
 
         return action, prediction
+
+    @staticmethod
+    def _strip_markdown(text: str) -> str:
+        """Remove markdown code fences that some models emit despite being told not to."""
+        lines = text.split('\n')
+        cleaned = []
+        in_fence = False
+        for line in lines:
+            if line.strip().startswith('```'):
+                in_fence = not in_fence
+                continue          # drop the fence line itself
+            if not in_fence:
+                cleaned.append(line)
+        result = '\n'.join(cleaned).strip()
+        # If stripping removed everything meaningful, return original unchanged
+        return result if len(result) > 20 else text
     
     def _call_llm(self, prompt: str) -> str:
         """

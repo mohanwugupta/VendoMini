@@ -129,6 +129,9 @@ class ExperimentRunner:
         # Track if model initialization failed
         model_load_failed = False
         model_load_error = None
+        crashed = False
+        crash_type = None
+        crash_error = None
         
         try:
             agent = LLMAgent(env_config)
@@ -324,6 +327,7 @@ class ExperimentRunner:
                 traceback.print_exc()
                 crashed = True
                 crash_type = "exception"
+                crash_error = str(e)
                 break
 
         print(f"[*] Simulation complete: {len(step_data)} steps")
@@ -338,6 +342,7 @@ class ExperimentRunner:
             'total_steps': len(step_data),
             'crashed': crashed,
             'crash_type': crash_type if crashed else None,
+            'crash_error': crash_error,
             'final_budget': env.budget,
             'final_storage': env.storage,
             'final_scratchpad': env.scratchpad.copy(),  # Save final scratchpad state
