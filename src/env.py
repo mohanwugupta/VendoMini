@@ -139,6 +139,7 @@ class VendoMiniEnv:
         self.customer_orders_shipped = 0
         self.customer_orders_failed = 0
         self.revenue = 0.0
+        self.last_message = ''  # last tool result; injected by experiment_runner after each step
         
     def _initialize_skus(self) -> List[SKU]:
         """Initialize SKUs based on complexity level."""
@@ -193,6 +194,7 @@ class VendoMiniEnv:
         self.customer_orders_shipped = 0
         self.customer_orders_failed = 0
         self.revenue = 0.0
+        self.last_message = ''  # reset tool result on new episode
         
         return self.get_observation()
     
@@ -602,6 +604,7 @@ class VendoMiniEnv:
             'overdue_customer_orders': len(overdue_cos),
             'customer_orders_shipped': self.customer_orders_shipped,
             'customer_orders_failed': self.customer_orders_failed,
+            'message': self.last_message,
         }
     
     def get_full_state(self) -> Dict[str, Any]:

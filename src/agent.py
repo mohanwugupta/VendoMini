@@ -539,9 +539,18 @@ class LLMAgent:
 
         # ── Everything else (HF transformers, OpenAI, Anthropic) ─────────────
         prompt = self._build_prompt(observation, available_tools)
-        response = self._call_llm(prompt)
 
-        # Debug: print response
+        # Append user turn, call LLM with full history, append assistant reply
+        self.messages.append({"role": "user", "content": prompt})
+        response = self._call_llm_with_history()
+        self.messages.append({"role": "assistant", "content": response})
+
+        # Trim history to stay within context window (keep system + last N turns)
+        max_turns = 10   # keep last 10 user/assistant pairs = 20 messages
+        if len(self.messages) > max_turns * 2:
+            self.messages = self.messages[-(max_turns * 2):]
+
+        # Debug: print short responses in full
         if len(response) < 500:
             print(f"  [DEBUG] LLM Response: {response}")
 
@@ -680,6 +689,48 @@ class LLMAgent:
         outputs = llm.generate([formatted], sampling_params)
         return outputs[0].outputs[0].text.strip()
     
+    def _call_llm_with_history(self) -> str:
+        """
+        Call the LLM using the full conversation history in self.messages.
+
+        Gives the model memory of its prior actions and tool results so it does
+        not restart reasoning from scratch on every step.
+        """
+        if self.provider == 'openai':
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=self.messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                return f"Error calling OpenAI: {e}"
+
+        elif self.provider == 'anthropic':
+            try:
+                response = self.client.messages.create(
+                    model=self.model_name,
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    messages=self.messages
+                )
+                return response.content[0].text
+            except Exception as e:
+                return f"Error calling Anthropic: {e}"
+
+        elif self.provider == 'huggingface':
+            # Flatten history into a single prompt string for HF models
+            flat_prompt = "\n\n".join(
+                f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+                for m in self.messages
+            )
+            return self._call_llm(flat_prompt)
+
+        # Fallback — should not be reached for supported providers
+        return self._call_llm(self.messages[-1]['content'] if self.messages else "")
+
     def _call_llm(self, prompt: str) -> str:
         """
         Call the LLM provider.
@@ -969,22 +1020,6 @@ ACTION: <tool_name>
 ARGS: <json_args>
 PREDICTION: <what will happen next?>
 SUCCESS: <true/false>
-
-STRATEGY EXAMPLES:
-
-Step 1 — Check inbox for customer orders:
-ACTION: tool_check_inbox
-ARGS: {{}}
-
-Step 2 — Check if you have stock, then ship:
-THOUGHTS: Customer CO5 wants 10 units of sku_2. I last saw 15 units in storage.
-ACTION: tool_ship_customer_order
-ARGS: {{"customer_order_id": "CO5"}}
-
-Step 3 — If stock is low, order from supplier first:
-THOUGHTS: I need 10 sku_2 but only have 3. Lead time is 2 days, due day is day 5. It's day 2, so I can still make it.
-ACTION: tool_order
-ARGS: {{"supplier_id": "S1", "sku": "sku_2", "quantity": 15}}
 
 Your turn:"""
         

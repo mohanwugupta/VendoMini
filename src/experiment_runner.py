@@ -251,6 +251,15 @@ class ExperimentRunner:
                     result, env_done = step_result, False
                 print(f"[DEBUG] Step {step}: Action executed, result received")
 
+                # Inject the tool result back as 'message' so the next call to
+                # env.get_observation() returns it in observation['message'].
+                # This feeds the tool output into _build_prompt's "Last Action Output"
+                # field and into the conversation history the agent sees.
+                tool_name = action.get('tool', '')
+                if isinstance(result, dict):
+                    result['message'] = f"[{tool_name}] returned: {json.dumps({k: v for k, v in result.items() if k != 'message'})}"
+                    env.last_message = result['message']   # persist into env for next get_observation()
+
                 # Calculate prediction errors
                 pe = pe_calc.compute_pe(prediction, result)
                 pe_calc.update_accumulators(pe)
