@@ -4,6 +4,21 @@ import json
 from typing import Dict, Any, Optional, List
 import os
 
+# JSON schema for the structured decision call (Phase 2 of two-phase inference).
+# The 'tool' enum is filled in dynamically per call so the model cannot hallucinate
+# a tool name.  Constrained decoding (vLLM guided_json) enforces this at token level.
+DECISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "tool":             {"type": "string"},
+        "args":             {"type": "object"},
+        "prediction_text":  {"type": "string"},
+        "expected_success": {"type": "boolean"}
+    },
+    "required": ["tool", "args", "prediction_text", "expected_success"],
+    "additionalProperties": False
+}
+
 
 class LLMAgent:
     """
@@ -459,18 +474,26 @@ class LLMAgent:
             tensor_parallel_size=os.getenv('CUDA_VISIBLE_DEVICES', '0').count(',') + 1,  # Auto-detect GPUs
         )
         
-        # Create sampling params that match our config
-        sampling_params = SamplingParams(
+        # Scratchpad params — free reasoning, full token budget
+        scratchpad_params = SamplingParams(
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             top_p=0.95,
         )
-        
+
+        # Decision params base — greedy, short output, schema applied per-call
+        decision_params_base = SamplingParams(
+            temperature=0,
+            max_tokens=2048,
+        )
+
         print(f"[*] vLLM initialized successfully")
-        
+
         return {
             'llm': llm,
-            'sampling_params': sampling_params,
+            'sampling_params': scratchpad_params,   # kept for legacy _call_llm path
+            'scratchpad_params': scratchpad_params,
+            'decision_params_base': decision_params_base,
             'backend': 'vllm'
         }
     
@@ -499,25 +522,103 @@ class LLMAgent:
                 f"Provider: {self.provider}. "
                 f"This experiment cannot run without a working LLM."
             )
-        
-        # Build prompt for LLM
+
+        # ── MOCK: use existing single-call path unchanged ─────────────────────
+        if self.client == "MOCK_CLIENT":
+            prompt = self._build_prompt(observation, available_tools)
+            response = self._call_llm(prompt)
+            action, prediction = self._parse_llm_response(response, available_tools)
+            if prediction is None:
+                prediction = {}
+            prediction['scratchpad_raw'] = response
+            return action, prediction
+
+        # ── vLLM: two-phase structured path ───────────────────────────────────
+        if isinstance(self.client, dict) and self.client.get('backend') == 'vllm':
+            return self._get_action_vllm(observation, available_tools)
+
+        # ── Everything else (HF transformers, OpenAI, Anthropic) ─────────────
         prompt = self._build_prompt(observation, available_tools)
-        
-        # Get LLM response
         response = self._call_llm(prompt)
-        
+
         # Debug: print response
         if len(response) < 500:
             print(f"  [DEBUG] LLM Response: {response}")
-        
-        # Parse response into action and prediction
-        action, prediction = self._parse_llm_response(response, available_tools)
 
-        # Attach raw response as scratchpad to prediction
+        action, prediction = self._parse_llm_response(response, available_tools)
         if prediction is None:
             prediction = {}
-        # Keep any existing scratchpad but prefer adding raw_response under 'scratchpad_raw'
         prediction['scratchpad_raw'] = response
+        return action, prediction
+
+    def _get_action_vllm(
+        self,
+        observation: Dict[str, Any],
+        available_tools: List[str]
+    ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """
+        Two-phase vLLM inference:
+          Phase 1 — free scratchpad reasoning (temperature=self.temperature, long)
+          Phase 2 — constrained JSON decision (temperature=0, guided_json schema)
+
+        The constrained decoder guarantees valid JSON matching DECISION_SCHEMA, so
+        json.loads always succeeds and _parse_llm_response handles arg validation.
+        """
+        from vllm import SamplingParams
+
+        llm = self.client['llm']
+
+        # ── Phase 1: free reasoning ────────────────────────────────────────────
+        scratchpad_prompt = self._build_prompt(observation, available_tools)
+        scratchpad_out    = llm.generate([scratchpad_prompt], self.client['scratchpad_params'])
+        scratchpad        = scratchpad_out[0].outputs[0].text.strip()
+        print(f"  [vllm] Scratchpad complete ({len(scratchpad)} chars)")
+
+        # ── Phase 2: constrained JSON decision ────────────────────────────────
+        # Deep-copy schema and lock tool enum to this step's available tools
+        schema = json.loads(json.dumps(DECISION_SCHEMA))
+        schema["properties"]["tool"]["enum"] = available_tools
+
+        decision_params = SamplingParams(
+            temperature=0,
+            max_tokens=300,
+            guided_json=json.dumps(schema),
+            guided_backend="outlines",   # ships with vLLM >= 0.4
+        )
+
+        decision_prompt = (
+            "You have reasoned through the situation:\n\n"
+            f"<reasoning>\n{scratchpad}\n</reasoning>\n\n"
+            "Available tools:\n"
+            + "\n".join(f"  - {t}" for t in available_tools) +
+            "\n\nOutput your single next action as JSON.\n"
+            "For tool_ship_customer_order use: {\"customer_order_id\": \"CO<N>\"}\n"
+            "For tool_order use: {\"supplier_id\": \"S<N>\", \"sku\": \"sku_<N>\", \"quantity\": <int>}\n"
+            "For check tools use: {}"
+        )
+
+        decision_out = llm.generate([decision_prompt], decision_params)
+        raw          = decision_out[0].outputs[0].text.strip()
+        print(f"  [vllm] Decision JSON: {raw}")
+
+        # json.loads is guaranteed to succeed — constrained decoding enforces schema
+        decision = json.loads(raw)
+
+        # Re-use existing _parse_llm_response arg validation by converting back to
+        # the text format it already handles (avoids duplicating validation logic).
+        fake_response = (
+            f"THOUGHTS:\n{scratchpad}\n"
+            f"ACTION: {decision['tool']}\n"
+            f"ARGS: {json.dumps(decision['args'])}\n"
+            f"PREDICTION: {decision['prediction_text']}\n"
+            f"SUCCESS: {'true' if decision['expected_success'] else 'false'}"
+        )
+        action, prediction = self._parse_llm_response(fake_response, available_tools)
+
+        if prediction is None:
+            prediction = {}
+        prediction['scratchpad_raw'] = scratchpad
+        prediction['decision_raw']   = raw   # raw JSON stored for analysis
 
         return action, prediction
     
