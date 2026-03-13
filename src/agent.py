@@ -741,12 +741,21 @@ class LLMAgent:
                 return f"Error calling Anthropic: {e}"
 
         elif self.provider == 'huggingface':
-            # Flatten history into a single prompt string for HF models
-            flat_prompt = "\n\n".join(
-                f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-                for m in self.messages
-            )
-            return self._call_llm(flat_prompt)
+            # Use apply_chat_template for proper chat formatting — the same approach
+            # as _call_llm_vllm_chat.  Raw string concatenation ("User: ... \n\n
+            # Assistant: ...") causes the model to continue the previous truncated
+            # turn rather than starting a fresh assistant reply.
+            tokenizer = self.client['tokenizer']
+            try:
+                formatted = tokenizer.apply_chat_template(
+                    self.messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+            except Exception:
+                # Tokenizer has no chat template — fall back to plain last prompt
+                formatted = self.messages[-1]['content'] if self.messages else ""
+            return self._call_llm(formatted)
 
         # Fallback — should not be reached for supported providers
         return self._call_llm(self.messages[-1]['content'] if self.messages else "")
@@ -884,10 +893,12 @@ class LLMAgent:
                 
                 print(f"[DEBUG] Retrieved tokenizer, model, device ({time.time() - start_time:.2f}s)")
                 
-                # Tokenize input
+                # Tokenize input — use self.context_length as the cap so history
+                # accumulated across steps doesn't get silently truncated to 2048.
                 print(f"[DEBUG] Tokenizing input (prompt length: {len(prompt)} chars)...")
                 tokenize_start = time.time()
-                inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, max_length=2048)
+                max_input_len = min(self.context_length, 8192)   # hard cap at 8k for safety
+                inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, max_length=max_input_len)
                 print(f"[DEBUG] Tokenization complete ({time.time() - tokenize_start:.2f}s, {inputs['input_ids'].shape[1]} tokens)")
                 
                 # Move inputs to device
