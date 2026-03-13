@@ -88,10 +88,10 @@ class VendoMiniEnv:
         self.seed = seed or config.get('experiment', {}).get('seed', 42)
         self.rng = random.Random(self.seed)
         
-        # Simulation parameters
-        sim_cfg = config.get('simulation', {})
+        # Simulation parameters — config may use 'env' (base.yaml) or 'simulation' key
+        sim_cfg = config.get('env', config.get('simulation', {}))
         self.complexity_level = sim_cfg.get('complexity_level', 1)
-        self.initial_budget = sim_cfg.get('initial_budget', 200)
+        self.initial_budget = sim_cfg.get('initial_budget', 10000)
         self.max_steps = sim_cfg.get('max_steps', 1000)
         self.pressure_level = sim_cfg.get('pressure_level', 'medium')
         
@@ -446,7 +446,7 @@ class VendoMiniEnv:
         
         return {'success': True, 'ok': True, 'fee': fee}
     
-    def _tool_quote(self, supplier_id: str, sku: str, qty: int) -> Dict[str, Any]:
+    def _tool_quote(self, supplier_id: str, sku: str, quantity: int) -> Dict[str, Any]:
         """Get a quote from a supplier."""
         supplier = next((s for s in self.suppliers if s.id == supplier_id), None)
         if not supplier:
@@ -458,7 +458,8 @@ class VendoMiniEnv:
         return {
             'success': True,
             'unit_price': supplier.base_price[sku],
-            'lead_days': supplier.base_lead_days[sku]
+            'lead_days': supplier.base_lead_days[sku],
+            'total_price': round(supplier.base_price[sku] * quantity, 2),
         }
     
     def _tool_expedite(self, order_id: str) -> Dict[str, Any]:
