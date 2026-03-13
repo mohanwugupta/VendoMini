@@ -149,26 +149,37 @@ class CrashDetector:
         """Check for repeated identical tool calls with no state change."""
         if len(window) < self.thresholds['loop_repeat_count']:
             return False
-        
+
+        # Tools that are legitimately called repeatedly (polling / read-only) —
+        # exclude them from the consecutive-repeat check so we don't false-fire.
+        POLLING_TOOLS = {'tool_check_inbox', 'tool_check_storage', 'tool_check_budget'}
+
         # Extract actions
         actions = []
         for step in window:
             action = step.get('action', {})
-            # Create action signature
-            action_sig = f"{action.get('tool')}_{str(action.get('args', {}))}"
+            tool = action.get('tool', '')
+            # Skip pure polling tools — they don't constitute a loop by themselves
+            if tool in POLLING_TOOLS:
+                continue
+            # Create action signature including args so different-arg calls aren't collapsed
+            action_sig = f"{tool}_{str(action.get('args', {}))}"
             actions.append(action_sig)
-        
+
+        if len(actions) < self.thresholds['loop_repeat_count']:
+            return False
+
         # Count consecutive repeats
         max_consecutive = 1
         current_consecutive = 1
-        
+
         for i in range(1, len(actions)):
             if actions[i] == actions[i-1]:
                 current_consecutive += 1
                 max_consecutive = max(max_consecutive, current_consecutive)
             else:
                 current_consecutive = 1
-        
+
         return max_consecutive >= self.thresholds['loop_repeat_count']
     
     def _check_invalid_burst(self, window: List[Dict[str, Any]]) -> bool:

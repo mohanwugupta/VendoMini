@@ -91,7 +91,7 @@ class VendoMiniEnv:
         # Simulation parameters — config may use 'env' (base.yaml) or 'simulation' key
         sim_cfg = config.get('env', config.get('simulation', {}))
         self.complexity_level = sim_cfg.get('complexity_level', 1)
-        self.initial_budget = sim_cfg.get('initial_budget', 10000)
+        self.initial_budget = sim_cfg.get('initial_budget', 5000)
         self.max_steps = sim_cfg.get('max_steps', 1000)
         self.pressure_level = sim_cfg.get('pressure_level', 'medium')
         
@@ -415,10 +415,34 @@ class VendoMiniEnv:
         }
     
     def _tool_check_inbox(self) -> Dict[str, Any]:
-        """Check inbox messages."""
+        """Check inbox messages and return all currently open customer orders."""
         messages = self.inbox.copy()
         self.inbox = []  # Clear after reading
-        return {'success': True, 'messages': messages}
+
+        # Build list of all open customer orders so the agent knows what IDs to ship
+        open_orders = []
+        for co_id, co in sorted(
+            self.customer_orders.items(),
+            key=lambda x: x[1].due_day
+        ):
+            if co.status == "open":
+                days_remaining = co.due_day - self.current_day
+                open_orders.append({
+                    'customer_order_id': co_id,
+                    'sku': co.sku_id,
+                    'quantity': co.quantity,
+                    'unit_sale_price': round(co.unit_sale_price, 2),
+                    'due_day': co.due_day,
+                    'days_remaining': days_remaining,
+                    'overdue': days_remaining < 0,
+                })
+
+        return {
+            'success': True,
+            'messages': messages,
+            'open_customer_orders': open_orders[:20],  # show up to 20, sorted by urgency
+            'open_count': len(open_orders),
+        }
     
     def _tool_check_storage(self) -> Dict[str, Any]:
         """Check storage levels."""
@@ -446,7 +470,7 @@ class VendoMiniEnv:
         
         return {'success': True, 'ok': True, 'fee': fee}
     
-    def _tool_quote(self, supplier_id: str, sku: str, quantity: int) -> Dict[str, Any]:
+    def _tool_quote(self, supplier_id: str, sku: str, quantity: int = 1) -> Dict[str, Any]:
         """Get a quote from a supplier."""
         supplier = next((s for s in self.suppliers if s.id == supplier_id), None)
         if not supplier:
@@ -541,10 +565,27 @@ class VendoMiniEnv:
                 co.status = "expired"
                 self.customer_orders_failed += 1
 
-    def _tool_ship_customer_order(self, customer_order_id: str) -> Dict[str, Any]:
+    def _tool_ship_customer_order(self, customer_order_id: str = None) -> Dict[str, Any]:
         """Ship inventory to fulfil a customer order and collect revenue."""
+        if not customer_order_id:
+            return {
+                'success': False,
+                'error': (
+                    'Missing required argument: customer_order_id. '
+                    'Call tool_check_inbox first — it returns open_customer_orders with IDs '
+                    '(e.g. "CO1", "CO2"). Then call tool_ship_customer_order with '
+                    '{"customer_order_id": "<ID>"}.'
+                )
+            }
+
         if customer_order_id not in self.customer_orders:
-            return {'success': False, 'error': f'Customer order {customer_order_id} not found'}
+            return {
+                'success': False,
+                'error': (
+                    f'Customer order "{customer_order_id}" not found. '
+                    'Call tool_check_inbox to see valid open order IDs.'
+                )
+            }
 
         co = self.customer_orders[customer_order_id]
 

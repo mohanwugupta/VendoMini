@@ -7,7 +7,7 @@ experiment:
 env:
   max_steps: 1000
   complexity_level: 1
-  initial_budget: 10000
+  initial_budget: 5000
   pressure_level: medium
 
 agent:

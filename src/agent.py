@@ -1021,13 +1021,13 @@ RULES:
   (But SKU IDs and supplier IDs are always listed in each step so you can form valid orders.)
 
 TOOL SIGNATURES:
-  tool_check_inbox    → {{}}
+  tool_check_inbox    → {{}}   ← also returns open_customer_orders list with IDs and urgency
   tool_check_storage  → {{}}
   tool_check_budget   → {{}}
-  tool_quote          → {{"supplier_id": "S<N>", "sku": "sku_<N>", "qty": <int>}}
+  tool_quote          → {{"supplier_id": "S<N>", "sku": "sku_<N>"}}   ← quantity optional (default 1)
   tool_order          → {{"supplier_id": "S<N>", "sku": "sku_<N>", "quantity": <int>}}
   tool_cancel_order   → {{"order_id": "ORD<N>"}}
-  tool_ship_customer_order → {{"customer_order_id": "CO<N>"}}
+  tool_ship_customer_order → {{"customer_order_id": "CO<N>"}}   ← get IDs from tool_check_inbox
 
 Choose ONE action per step. Think through what you know and what the best next action is."""
 
