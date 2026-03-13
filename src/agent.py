@@ -553,7 +553,10 @@ class LLMAgent:
 
         # Trim history to stay within context window.
         # Always keep index 0 (system message) + last N user/assistant pairs.
-        max_turns = 10   # keep last 10 user/assistant pairs = 20 messages
+        # For HF transformers, keep 5 turns (10 messages) — the 4096-token input cap
+        # means longer histories get truncated from the front anyway, so keeping
+        # fewer turns avoids paying the tokenization cost for tokens that get dropped.
+        max_turns = 5   # keep last 5 user/assistant pairs = 10 messages
         if len(self.messages) > 1 + max_turns * 2:
             self.messages = [self.messages[0]] + self.messages[-(max_turns * 2):]
 
@@ -893,11 +896,13 @@ class LLMAgent:
                 
                 print(f"[DEBUG] Retrieved tokenizer, model, device ({time.time() - start_time:.2f}s)")
                 
-                # Tokenize input — use self.context_length as the cap so history
-                # accumulated across steps doesn't get silently truncated to 2048.
+                # Tokenize input — cap at 4096 tokens.  History is included via
+                # apply_chat_template so 4096 comfortably fits ~8 turns + system msg.
+                # We do NOT use context_length (often 128k) as the cap because
+                # tokenizing + attending over 8k+ tokens with HF is very slow.
                 print(f"[DEBUG] Tokenizing input (prompt length: {len(prompt)} chars)...")
                 tokenize_start = time.time()
-                max_input_len = min(self.context_length, 8192)   # hard cap at 8k for safety
+                max_input_len = 4096
                 inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, max_length=max_input_len)
                 print(f"[DEBUG] Tokenization complete ({time.time() - tokenize_start:.2f}s, {inputs['input_ids'].shape[1]} tokens)")
                 
@@ -917,21 +922,35 @@ class LLMAgent:
                         reserved = torch.cuda.memory_reserved(i) / (1024**3)
                         print(f"[DEBUG] GPU {i} before generation: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
                 
-                # Generate response with cache disabled to avoid DynamicCache issues
-                print(f"[DEBUG] Starting model.generate() with max_new_tokens={self.max_tokens}...")
+                # Generate response.
+                # use_cache=True is critical for performance — without it the model
+                # re-processes all input tokens for every generated token (O(n²)).
+                # If the DynamicCache error resurfaces (transformers >= 4.36 issue),
+                # we catch it and retry once with use_cache=False as a fallback.
+                print(f"[DEBUG] Starting model.generate() with max_new_tokens={min(self.max_tokens, 512)}...")
                 gen_start = time.time()
                 
-                with torch.no_grad():
-                    outputs = model.generate(
-                        **inputs,
-                        max_new_tokens=min(self.max_tokens, 512),  # Cap at 512 to avoid long hangs
-                        temperature=self.temperature,
-                        do_sample=True if self.temperature > 0 else False,
-                        pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id else tokenizer.eos_token_id,
-                        eos_token_id=tokenizer.eos_token_id,
-                        use_cache=False,  # Disable cache to avoid DynamicCache errors
-                        num_beams=1,      # Use greedy or sampling, not beam search
-                    )
+                def _generate(use_cache_flag: bool):
+                    with torch.no_grad():
+                        return model.generate(
+                            **inputs,
+                            max_new_tokens=min(self.max_tokens, 512),
+                            temperature=self.temperature,
+                            do_sample=True if self.temperature > 0 else False,
+                            pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id else tokenizer.eos_token_id,
+                            eos_token_id=tokenizer.eos_token_id,
+                            use_cache=use_cache_flag,
+                            num_beams=1,
+                        )
+                
+                try:
+                    outputs = _generate(use_cache_flag=True)
+                except Exception as cache_err:
+                    if "DynamicCache" in str(cache_err) or "cache" in str(cache_err).lower():
+                        print(f"[DEBUG] KV cache error ({cache_err}), retrying with use_cache=False")
+                        outputs = _generate(use_cache_flag=False)
+                    else:
+                        raise
                 
                 gen_time = time.time() - gen_start
                 print(f"[DEBUG] Generation complete ({gen_time:.2f}s, {gen_time/60:.1f} min)")
