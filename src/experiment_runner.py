@@ -242,23 +242,24 @@ class ExperimentRunner:
                 if step < 5 or step % 10 == 0:  # Log first 5 steps and every 10th step
                     print(f"  Step {step}: action={action.get('tool', 'unknown')}")
 
-                # Execute action — env.step() returns (next_observation, done_flag)
+                # Execute action — env.step() returns (next_observation, done_flag, tool_result)
                 print(f"[DEBUG] Step {step}: Executing action in environment...")
                 step_result = env.step(action)
-                if isinstance(step_result, tuple):
+                if isinstance(step_result, tuple) and len(step_result) == 3:
+                    result, env_done, action_result = step_result
+                elif isinstance(step_result, tuple):
                     result, env_done = step_result
+                    action_result = result
                 else:
-                    result, env_done = step_result, False
+                    result, env_done, action_result = step_result, False, {}
                 print(f"[DEBUG] Step {step}: Action executed, result received")
 
-                # Inject the tool result back as 'message' so the next call to
-                # env.get_observation() returns it in observation['message'].
-                # This feeds the tool output into _build_prompt's "Last Action Output"
-                # field and into the conversation history the agent sees.
+                # Inject the TOOL result (not the observation) as 'message' so the
+                # agent sees the actual tool output — e.g. tool_check_inbox returns
+                # open_customer_orders as a list of dicts with IDs, not a count.
                 tool_name = action.get('tool', '')
-                if isinstance(result, dict):
-                    result['message'] = f"[{tool_name}] returned: {json.dumps({k: v for k, v in result.items() if k != 'message'})}"
-                    env.last_message = result['message']   # persist into env for next get_observation()
+                result['message'] = f"[{tool_name}] returned: {json.dumps(action_result)}"
+                env.last_message = result['message']
 
                 # Calculate prediction errors
                 pe = pe_calc.compute_pe(prediction, result)

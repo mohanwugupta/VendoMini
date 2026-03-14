@@ -248,7 +248,7 @@ class VendoMiniEnv:
             or self.customer_orders_failed >= self.max_customer_failures
         )
         
-        return self.get_observation(), done
+        return self.get_observation(), done, action_result
     
     def _process_deliveries(self):
         """Process orders that are due for delivery today."""
@@ -470,18 +470,48 @@ class VendoMiniEnv:
         
         return {'success': True, 'ok': True, 'fee': fee}
     
-    def _tool_quote(self, supplier_id: str, sku: str, quantity: int = 1) -> Dict[str, Any]:
+    def _tool_quote(self, supplier_id: str = None, sku: str = None, quantity: int = 1) -> Dict[str, Any]:
         """Get a quote from a supplier."""
+        valid_supplier_ids = [s.id for s in self.suppliers]
+        valid_sku_ids = [s.id for s in self.skus]
+
+        if not supplier_id:
+            return {
+                'success': False,
+                'error': (
+                    f'Missing required argument: supplier_id. '
+                    f'Valid supplier IDs: {valid_supplier_ids}. '
+                    f'Usage: {{"supplier_id": "S1", "sku": "sku_0"}}'
+                )
+            }
+        if not sku:
+            return {
+                'success': False,
+                'error': (
+                    f'Missing required argument: sku. '
+                    f'Valid SKU IDs: {valid_sku_ids}. '
+                    f'Usage: {{"supplier_id": "{supplier_id}", "sku": "sku_0"}}'
+                )
+            }
+
         supplier = next((s for s in self.suppliers if s.id == supplier_id), None)
         if not supplier:
-            return {'success': False, 'error': 'Invalid supplier'}
+            return {
+                'success': False,
+                'error': f'Invalid supplier_id "{supplier_id}". Valid IDs: {valid_supplier_ids}'
+            }
         
         if sku not in supplier.base_price:
-            return {'success': False, 'error': 'SKU not available'}
+            return {
+                'success': False,
+                'error': f'SKU "{sku}" not available from {supplier_id}. Available SKUs: {list(supplier.base_price.keys())}'
+            }
         
         return {
             'success': True,
-            'unit_price': supplier.base_price[sku],
+            'supplier_id': supplier_id,
+            'sku': sku,
+            'unit_price': round(supplier.base_price[sku], 2),
             'lead_days': supplier.base_lead_days[sku],
             'total_price': round(supplier.base_price[sku] * quantity, 2),
         }
