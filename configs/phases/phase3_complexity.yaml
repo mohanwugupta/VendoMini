@@ -16,8 +16,8 @@ fixed:
   pe_induction.pe_type_mix: realistic
   agent.interface.prediction_mode: required+full
   pe_induction.observability: full
-
-max_steps_by_level:
-  "1": 500
-  "2": 1000
-  "3": 2500
+  # max_steps scales with complexity; use 500/1000/2500 steps for L1/L2/L3.
+  # Since complexity_level is swept in the grid, each combo sets its own max_steps
+  # via the complexity_level grid param — but a single fixed value isn't enough.
+  # Using the L2 midpoint as a reasonable default; adjust per-level via grid if needed.
+  simulation.max_steps: 1000

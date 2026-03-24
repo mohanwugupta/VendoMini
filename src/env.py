@@ -88,12 +88,17 @@ class VendoMiniEnv:
         self.seed = seed or config.get('experiment', {}).get('seed', 42)
         self.rng = random.Random(self.seed)
         
-        # Simulation parameters — config may use 'env' (base.yaml) or 'simulation' key
-        sim_cfg = config.get('env', config.get('simulation', {}))
-        self.complexity_level = sim_cfg.get('complexity_level', 1)
-        self.initial_budget = sim_cfg.get('initial_budget', 5000)
-        self.max_steps = sim_cfg.get('max_steps', 1000)
-        self.pressure_level = sim_cfg.get('pressure_level', 'medium')
+        # Simulation parameters — config may use 'env' (base.yaml) or 'simulation' key.
+        # Phase configs set overrides under 'simulation.*' (via fixed: block), which
+        # should take precedence over the base 'env.*' values.
+        sim_cfg      = config.get('env', config.get('simulation', {}))
+        sim_override = config.get('simulation', {})
+        self.complexity_level = sim_override.get('complexity_level',
+                                  sim_cfg.get('complexity_level', 1))
+        self.initial_budget   = sim_cfg.get('initial_budget', 5000)
+        self.max_steps        = sim_override.get('max_steps',
+                                  sim_cfg.get('max_steps', 1000))
+        self.pressure_level   = sim_cfg.get('pressure_level', 'medium')
         
         # PE induction parameters
         pe_cfg = config.get('pe_induction', {})

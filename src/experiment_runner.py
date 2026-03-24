@@ -106,6 +106,13 @@ class ExperimentRunner:
         import copy
         
         env_config = copy.deepcopy(self.config)
+
+        # Apply fixed params from the phase config's fixed: block.
+        # In cluster mode get_task_params_slurm() returns only grid combos, so
+        # fixed: items (e.g. demand.p_customer_order, simulation.max_steps) must
+        # be applied explicitly here — otherwise they are silently ignored.
+        for path, value in self.config.get('fixed', {}).items():
+            _set_nested(env_config, path, value)
         
         # Apply grid parameters using nested path notation
         for key, value in params.items():
@@ -206,8 +213,9 @@ class ExperimentRunner:
         pe_calc = PECalculator()
         crash_detector = CrashDetector(**self.base_config.get_crash_config())
 
-        # Run simulation
-        max_steps = self.config.get('max_steps', 100)
+        # Run simulation — use the env's authoritative max_steps (already resolved
+        # from fixed + grid params) rather than a top-level config key that is never set.
+        max_steps = env.max_steps
         step_data = []
 
         # Define available tools based on interface config

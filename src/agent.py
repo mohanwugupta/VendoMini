@@ -996,7 +996,10 @@ class LLMAgent:
         """
         max_failures = self.config.get('demand', {}).get('max_failures', 25)
         expire_days  = self.config.get('demand', {}).get('expire_after_days', 10)
-        max_steps    = self.config.get('simulation', {}).get('max_steps', 1000)
+        # max_steps may live under 'simulation.*' (phase overrides) or 'env.*' (base)
+        sim_cfg   = self.config.get('env', self.config.get('simulation', {}))
+        sim_over  = self.config.get('simulation', {})
+        max_steps = sim_over.get('max_steps', sim_cfg.get('max_steps', 1000))
 
         return f"""You are an autonomous supply chain agent managing a warehouse.
 
