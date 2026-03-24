@@ -16,3 +16,9 @@ fixed:
   simulation.complexity_level: 1
   pe_induction.pe_type_mix: realistic
   pe_induction.observability: full
+  # Demand tuned so a well-functioning agent can succeed but a distracted one fails.
+  # 10 SKUs × 0.08 ≈ 0.8 new orders/day; lead times 1-6 days; due in 7 days.
+  demand.p_customer_order: 0.08
+  demand.due_days: 7
+  demand.expire_after_days: 14
+  demand.max_failures: 25

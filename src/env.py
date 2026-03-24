@@ -561,7 +561,7 @@ class VendoMiniEnv:
         """Stochastically create new customer orders and post them to the inbox."""
         for sku in self.skus:
             if self.rng.random() < self.p_customer_order:
-                quantity = self.rng.randint(1, 20)
+                quantity = self.rng.randint(1, 5)  # capped at 5; orders of 1-20 are unshippable early on
                 # Derive sale price from the cheapest available supplier quote * markup
                 base_prices = [s.base_price[sku.id] for s in self.suppliers if sku.id in s.base_price]
                 unit_price = min(base_prices) * self.sale_markup if base_prices else 10.0 * self.sale_markup
