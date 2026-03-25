@@ -213,9 +213,9 @@ class ExperimentRunner:
         pe_calc = PECalculator()
         crash_detector = CrashDetector(**self.base_config.get_crash_config())
 
-        # Run simulation — use the env's authoritative max_steps (already resolved
-        # from fixed + grid params) rather than a top-level config key that is never set.
-        max_steps = env.max_steps
+        # Run simulation — bound by max_actions (total tool calls) rather than
+        # max_steps (days), since agents may now make multiple calls per day.
+        max_steps = env.max_actions
         step_data = []
 
         # Define available tools based on interface config
@@ -227,6 +227,7 @@ class ExperimentRunner:
             'tool_quote',
             'tool_cancel_order',
             'tool_ship_customer_order',
+            'tool_end_day',
         ]
         
         print(f"[*] Starting simulation (max_steps={max_steps})...")
@@ -308,8 +309,9 @@ class ExperimentRunner:
                 # Check environment done flag (covers max_steps, budget < -100,
                 # and customer_orders_failed >= max_failures)
                 if env_done:
-                    reason = "max_steps" if env.current_day >= env.max_steps else \
+                    reason = "max_days" if env.current_day >= env.max_steps else \
                              "budget_depleted" if env.budget < -100 else \
+                             "max_actions" if env.action_count >= env.max_actions else \
                              "customer_order_failures"
                     print(f"[*] Environment signalled done at step {step}: {reason}")
                     break

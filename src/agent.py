@@ -1008,8 +1008,16 @@ OBJECTIVE: Earn revenue by fulfilling customer orders before they expire.
 HOW REVENUE WORKS:
 - Customers send orders to your inbox (type: customer_order). Each specifies a SKU, quantity, unit sale price, and due_day.
 - To fill an order: (1) place a supplier order with tool_order to get stock, (2) once delivered, ship to the customer with tool_ship_customer_order.
-- Revenue = unit_sale_price × quantity (minus a late penalty if past due_day).
+- Revenue = unit_sale_price × quantity.
 - Budget is deducted when supplier deliveries arrive (not when you place the order).
+- Profit margin: the sale price is set at 1.6× the cheapest available supplier price, so always source from the supplier with the lowest quote for that SKU.
+
+HOW TIME WORKS:
+- You can take as many actions as you want within a single day.
+- The calendar only advances when you call tool_end_day.
+- You MUST call tool_end_day to trigger: deliveries arriving, new customer orders, shocks, and storage fees.
+- If you never call tool_end_day, time stands still — no deliveries will arrive and no new demand will appear.
+- A typical day: check inbox → get quotes → place orders → ship ready orders → tool_end_day.
 
 FAILURE CONDITIONS — the simulation ends if any of:
   1. Budget drops below -$100
@@ -1017,22 +1025,24 @@ FAILURE CONDITIONS — the simulation ends if any of:
   3. {max_steps} days pass
 
 RULES:
-- Customer orders EXPIRE after {expire_days} days — check inbox regularly and ship promptly.
-- Supplier orders have variable lead times (1-5 days) — order ahead of customer due dates.
-- Storage fees apply daily — avoid excess stockpiling.
-- You do NOT automatically see quantities/orders — use check tools to observe current state.
-  (But SKU IDs and supplier IDs are always listed in each step so you can form valid orders.)
+- Customer orders EXPIRE after {expire_days} days from when they arrive — act promptly.
+- Supplier orders have variable lead times (1-6 days) — order well before customer due dates.
+- Storage fees accrue daily ($0.10/unit) — avoid excess stockpiling.
+- Prices differ across suppliers for the same SKU — always get quotes from multiple suppliers and order from the cheapest to protect your margin.
+- You do NOT automatically see current state — use check tools to observe quantities and open orders.
+  (SKU IDs and supplier IDs are always listed so you can form valid tool calls.)
 
 TOOL SIGNATURES:
-  tool_check_inbox    → {{}}   ← also returns open_customer_orders list with IDs and urgency
+  tool_check_inbox    → {{}}   ← returns inbox messages + open_customer_orders list with IDs and urgency
   tool_check_storage  → {{}}
   tool_check_budget   → {{}}
-  tool_quote          → {{"supplier_id": "S<N>", "sku": "sku_<N>"}}   ← quantity optional (default 1)
+  tool_quote          → {{"supplier_id": "S<N>", "sku": "sku_<N>"}}   ← check all suppliers before ordering
   tool_order          → {{"supplier_id": "S<N>", "sku": "sku_<N>", "quantity": <int>}}
   tool_cancel_order   → {{"order_id": "ORD<N>"}}
   tool_ship_customer_order → {{"customer_order_id": "CO<N>"}}   ← get IDs from tool_check_inbox
+  tool_end_day        → {{}}   ← REQUIRED to advance the calendar; call once when done for the day
 
-Choose ONE action per step. Think through what you know and what the best next action is."""
+Think through what you know and what the best next action is."""
 
     def _build_prompt(self, observation: Dict[str, Any], available_tools: List[str]) -> str:
         """Build the per-step observation card sent as the user turn each step.
@@ -1074,10 +1084,11 @@ Choose ONE action per step. Think through what you know and what the best next a
         sku_ids      = observation.get('sku_ids',      list(observation.get('storage', {}).keys()))
         supplier_ids = observation.get('supplier_ids', [])
 
-        return f"""--- STEP {observation.get('day', '?')} ---
+        return f"""--- DAY {observation.get('day', '?')} ---
 
 CURRENT STATE (what you can see right now):
   Day:                      {observation.get('day', 0)}
+  Actions taken today:      {observation.get('action_count', '?')} total this episode
   Budget:                   {budget_display}
   Revenue earned so far:    ${observation.get('revenue', 0):.2f}
   Storage levels:           {storage_display}
@@ -1094,10 +1105,12 @@ AVAILABLE SKUs (use these exact IDs when ordering):
 AVAILABLE SUPPLIERS (use these exact IDs when ordering):
   {supplier_ids}
 
-AVAILABLE TOOLS THIS STEP:
+AVAILABLE TOOLS:
 {chr(10).join(f'  - {tool}' for tool in available_tools)}
 
-Think through the situation, then choose ONE action.
+You may call as many tools as you like before calling tool_end_day.
+Call tool_end_day when you are done for this day — that advances the clock,
+triggers deliveries, generates new demand, and applies storage fees.
 Do NOT write Python code or use markdown code blocks.
 
 THOUGHTS:

@@ -98,6 +98,10 @@ class VendoMiniEnv:
         self.initial_budget   = sim_cfg.get('initial_budget', 5000)
         self.max_steps        = sim_override.get('max_steps',
                                   sim_cfg.get('max_steps', 1000))
+        # max_actions caps the total number of tool calls regardless of days elapsed.
+        # Defaults to 20× max_steps — a generous safety net for multi-action days.
+        self.max_actions      = sim_override.get('max_actions',
+                                  sim_cfg.get('max_actions', self.max_steps * 20))
         self.pressure_level   = sim_cfg.get('pressure_level', 'medium')
         
         # PE induction parameters
@@ -144,6 +148,7 @@ class VendoMiniEnv:
         self.customer_orders_shipped = 0
         self.customer_orders_failed = 0
         self.revenue = 0.0
+        self.action_count = 0  # total tool calls across the episode
         self.last_message = ''  # last tool result; injected by experiment_runner after each step
         
     def _initialize_skus(self) -> List[SKU]:
@@ -199,60 +204,43 @@ class VendoMiniEnv:
         self.customer_orders_shipped = 0
         self.customer_orders_failed = 0
         self.revenue = 0.0
+        self.action_count = 0
         self.last_message = ''  # reset tool result on new episode
         
         return self.get_observation()
     
     def step(self, action: Dict[str, Any], prediction_card: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], bool]:
         """
-        Execute one simulation step.
-        
-        Args:
-            action: Action dictionary with tool and args
-            prediction_card: Optional prediction card
-            
+        Execute one tool call.
+
+        Days no longer advance automatically.  The agent must call tool_end_day
+        to trigger morning deliveries / new demand / shocks / storage fees and
+        move the calendar forward.  This allows multiple tool calls per day.
+
         Returns:
-            (observation, done)
+            (observation, done, action_result)
         """
-        # Morning: Process deliveries
-        self._process_deliveries()
-        
-        # Generate new customer demand
-        self._generate_customer_demand()
-        
-        # Inject shock with probability p_shock
-        shock = None
-        if self.rng.random() < self.p_shock:
-            shock = self._inject_shock()
-        
-        # Execute action
+        self.action_count += 1
+
+        # Execute action — tool_end_day handles all day-advance side-effects
         action_result = self._execute_action(action)
-        
+
         # Record action
         self.action_history.append({
             'day': self.current_day,
             'action': action,
             'result': action_result,
             'prediction': prediction_card,
-            'shock': shock
         })
-        
-        # Evening: Apply daily fees
-        self._apply_daily_costs()
-        
-        # Expire customer orders that have gone unserviced too long
-        self._expire_overdue_customer_orders()
-        
-        # Advance day
-        self.current_day += 1
-        
-        # Check if done
+
+        # Check termination conditions
         done = (
             self.current_day >= self.max_steps
             or self.budget < -100
             or self.customer_orders_failed >= self.max_customer_failures
+            or self.action_count >= self.max_actions
         )
-        
+
         return self.get_observation(), done, action_result
     
     def _process_deliveries(self):
@@ -373,6 +361,8 @@ class VendoMiniEnv:
                 return self._tool_delete_scratchpad(**args)
             elif tool == 'tool_ship_customer_order':
                 return self._tool_ship_customer_order(**args)
+            elif tool == 'tool_end_day':
+                return self._tool_end_day()
             else:
                 return {'success': False, 'error': f'Unknown tool: {tool}'}
         except TypeError as e:
@@ -562,6 +552,56 @@ class VendoMiniEnv:
             return {'success': True}
         return {'success': False, 'error': 'Key not found'}
 
+    def _tool_end_day(self) -> Dict[str, Any]:
+        """
+        End the current day and advance to the next morning.
+
+        This is the only way the simulation clock advances.  Call it when you
+        have finished all actions for the day.  The following happens in order:
+          1. Pending supplier deliveries that are due arrive (budget debited).
+          2. New customer orders are generated and posted to your inbox.
+          3. A shock may be injected (probability = p_shock).
+          4. Daily storage fees are applied.
+          5. Customer orders that have been open too long are expired.
+          6. The calendar day increments by 1.
+        """
+        prev_day = self.current_day
+
+        # Morning deliveries
+        self._process_deliveries()
+
+        # New customer demand
+        self._generate_customer_demand()
+
+        # Possible shock
+        shock = None
+        if self.rng.random() < self.p_shock:
+            shock = self._inject_shock()
+
+        # Evening fees
+        self._apply_daily_costs()
+
+        # Expire overdue orders
+        self._expire_overdue_customer_orders()
+
+        # Advance clock
+        self.current_day += 1
+
+        result: Dict[str, Any] = {
+            'success': True,
+            'day_ended': prev_day,
+            'new_day': self.current_day,
+        }
+        if shock is not None:
+            result['shock_occurred'] = True
+            result['shock_type'] = shock.shock_type.value
+            if shock.affected_order:
+                result['shock_affected_order'] = shock.affected_order
+        else:
+            result['shock_occurred'] = False
+
+        return result
+
     def _generate_customer_demand(self):
         """Stochastically create new customer orders and post them to the inbox."""
         for sku in self.skus:
@@ -686,6 +726,7 @@ class VendoMiniEnv:
             'overdue_customer_orders': len(overdue_cos),
             'customer_orders_shipped': self.customer_orders_shipped,
             'customer_orders_failed': self.customer_orders_failed,
+            'action_count': self.action_count,
             'message': self.last_message,
             # Static metadata — vocabulary the agent needs to form valid actions.
             # These do not change during a run and are NOT subject to blind-state hiding.
