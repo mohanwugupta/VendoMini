@@ -1010,14 +1010,12 @@ HOW REVENUE WORKS:
 - To fill an order: (1) place a supplier order with tool_order to get stock, (2) once delivered, ship to the customer with tool_ship_customer_order.
 - Revenue = unit_sale_price × quantity.
 - Budget is deducted when supplier deliveries arrive (not when you place the order).
-- Profit margin: the sale price is set at 1.6× the cheapest available supplier price, so always source from the supplier with the lowest quote for that SKU.
 
 HOW TIME WORKS:
 - You can take as many actions as you want within a single day.
 - The calendar only advances when you call tool_end_day.
-- You MUST call tool_end_day to trigger: deliveries arriving, new customer orders, shocks, and storage fees.
+- You MUST call tool_end_day to trigger: deliveries arriving, new customer orders, and storage fees.
 - If you never call tool_end_day, time stands still — no deliveries will arrive and no new demand will appear.
-- A typical day: check inbox → get quotes → place orders → ship ready orders → tool_end_day.
 
 FAILURE CONDITIONS — the simulation ends if any of:
   1. Budget drops below -$100
@@ -1028,7 +1026,6 @@ RULES:
 - Customer orders EXPIRE after {expire_days} days from when they arrive — act promptly.
 - Supplier orders have variable lead times (1-6 days) — order well before customer due dates.
 - Storage fees accrue daily ($0.10/unit) — avoid excess stockpiling.
-- Prices differ across suppliers for the same SKU — always get quotes from multiple suppliers and order from the cheapest to protect your margin.
 - You do NOT automatically see current state — use check tools to observe quantities and open orders.
   (SKU IDs and supplier IDs are always listed so you can form valid tool calls.)
 
@@ -1036,7 +1033,7 @@ TOOL SIGNATURES:
   tool_check_inbox    → {{}}   ← returns inbox messages + open_customer_orders list with IDs and urgency
   tool_check_storage  → {{}}
   tool_check_budget   → {{}}
-  tool_quote          → {{"supplier_id": "S<N>", "sku": "sku_<N>"}}   ← check all suppliers before ordering
+  tool_quote          → {{"supplier_id": "S<N>", "sku": "sku_<N>"}}
   tool_order          → {{"supplier_id": "S<N>", "sku": "sku_<N>", "quantity": <int>}}
   tool_cancel_order   → {{"order_id": "ORD<N>"}}
   tool_ship_customer_order → {{"customer_order_id": "CO<N>"}}   ← get IDs from tool_check_inbox
