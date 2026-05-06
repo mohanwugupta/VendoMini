@@ -1,8 +1,8 @@
 """LLM Agent interface for VendoMini."""
 
 import json
-from typing import Dict, Any, Optional, List
 import os
+from typing import Any, Dict, List, Optional
 
 # JSON schema for the structured decision call (Phase 2 of two-phase inference).
 # The 'tool' enum is filled in dynamically per call so the model cannot hallucinate
@@ -10,232 +10,250 @@ import os
 DECISION_SCHEMA = {
     "type": "object",
     "properties": {
-        "tool":             {"type": "string"},
-        "args":             {"type": "object"},
-        "prediction_text":  {"type": "string"},
-        "expected_success": {"type": "boolean"}
+        "tool": {"type": "string"},
+        "args": {"type": "object"},
+        "prediction_text": {"type": "string"},
+        "expected_success": {"type": "boolean"},
     },
     "required": ["tool", "args", "prediction_text", "expected_success"],
-    "additionalProperties": False
+    "additionalProperties": False,
 }
 
 
 class LLMAgent:
     """
     Interface to LLM for agent decisions and predictions.
-    
+
     Supports multiple providers (OpenAI, Anthropic) and handles
     prediction card generation.
     """
-    
+
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize LLM agent.
-        
+
         Args:
             config: Configuration dictionary with model settings
                    Can be full config with 'agent' section or just agent config
         """
         self.config = config
-        
+
         # Handle both config structures:
         # 1. Full config with agent.model and agent.interface
         # 2. Agent config with model and interface at top level
-        if 'agent' in config:
+        if "agent" in config:
             # Full config structure - extract agent section
-            agent_cfg = config['agent']
-            model_cfg = agent_cfg.get('model', {})
-            interface_cfg = agent_cfg.get('interface', {})
+            agent_cfg = config["agent"]
+            model_cfg = agent_cfg.get("model", {})
+            interface_cfg = agent_cfg.get("interface", {})
         else:
             # Direct agent config structure
-            model_cfg = config.get('model', {})
-            interface_cfg = config.get('interface', {})
-        
-        self.model_name = model_cfg.get('name', 'gpt-4')
-        self.temperature = model_cfg.get('temperature', 0.3)
-        self.max_tokens = model_cfg.get('max_tokens_per_call', 2000)
-        self.context_length = model_cfg.get('context_length', 32000)
-        
-        self.prediction_mode = interface_cfg.get('prediction_mode', 'required')
-        self.prediction_format = interface_cfg.get('prediction_format', 'structured')
-        self.memory_tools = interface_cfg.get('memory_tools', 'full')
-        self.recovery_tools = interface_cfg.get('recovery_tools', 'none')
-        
+            model_cfg = config.get("model", {})
+            interface_cfg = config.get("interface", {})
+
+        self.model_name = model_cfg.get("name", "gpt-4")
+        self.temperature = model_cfg.get("temperature", 0.3)
+        self.max_tokens = model_cfg.get("max_tokens_per_call", 2000)
+        self.context_length = model_cfg.get("context_length", 32000)
+
+        self.prediction_mode = interface_cfg.get("prediction_mode", "required")
+        self.prediction_format = interface_cfg.get("prediction_format", "structured")
+        self.memory_tools = interface_cfg.get("memory_tools", "full")
+        self.recovery_tools = interface_cfg.get("recovery_tools", "none")
+
         # Initialize provider
         self.provider = self._detect_provider()
         self.client = self._initialize_client()
-        
+
         # Conversation history
         self.messages = []
-        
+
         # Mock agent step counter (used only when provider == 'mock')
         self._mock_step = 0
-        
+
     def _detect_provider(self) -> str:
         """Detect which LLM provider to use based on model name."""
         model_lower = self.model_name.lower()
-        
+
         # Check for HuggingFace format FIRST (org/model)
-        if '/' in self.model_name:
-            return 'huggingface'
+        if "/" in self.model_name:
+            return "huggingface"
         # Then check for OpenAI models (no slash, contains gpt or o1)
-        elif 'gpt' in model_lower or 'o1' in model_lower:
-            return 'openai'
-        elif 'claude' in model_lower:
-            return 'anthropic'
-        elif 'mock' in model_lower:
-            return 'mock'
+        elif "gpt" in model_lower or "o1" in model_lower:
+            return "openai"
+        elif "claude" in model_lower:
+            return "anthropic"
+        elif "mock" in model_lower:
+            return "mock"
         else:
             # Default to OpenAI-compatible
-            return 'openai'
-    
+            return "openai"
+
     def _initialize_client(self):
         """Initialize the LLM client."""
         # Check if vLLM should be used (via environment variable)
-        use_vllm = os.getenv('VENDOMINI_USE_VLLM', '').lower() in ['1', 'true', 'yes']
-        
-        if self.provider == 'openai':
+        use_vllm = os.getenv("VENDOMINI_USE_VLLM", "").lower() in ["1", "true", "yes"]
+
+        if self.provider == "openai":
             try:
                 import openai
-                api_key = os.getenv('OPENAI_API_KEY')
+
+                api_key = os.getenv("OPENAI_API_KEY")
                 if api_key:
                     return openai.OpenAI(api_key=api_key)
                 return None
             except ImportError:
                 return None
-        elif self.provider == 'anthropic':
+        elif self.provider == "anthropic":
             try:
                 import anthropic
-                api_key = os.getenv('ANTHROPIC_API_KEY')
+
+                api_key = os.getenv("ANTHROPIC_API_KEY")
                 if api_key:
                     return anthropic.Anthropic(api_key=api_key)
                 return None
             except ImportError:
                 return None
-        elif self.provider == 'huggingface':
+        elif self.provider == "huggingface":
             # Try vLLM first if enabled, fall back to standard transformers
             if use_vllm:
                 try:
                     return self._initialize_vllm()
                 except Exception as e:
                     print(f"[WARNING] vLLM initialization failed: {e}")
-                    print(f"[*] Falling back to standard HuggingFace Transformers")
-            
+                    print("[*] Falling back to standard HuggingFace Transformers")
+
             # Standard HuggingFace Transformers path
             try:
-                from transformers import AutoTokenizer, AutoModelForCausalLM
                 import torch
-                
+                from transformers import AutoModelForCausalLM, AutoTokenizer
+
                 # FORCE OFFLINE MODE - Don't contact HuggingFace servers
                 # This is critical for cluster compute nodes without internet access
-                os.environ['HF_HUB_OFFLINE'] = '1'
-                os.environ['TRANSFORMERS_OFFLINE'] = '1'
-                
+                os.environ["HF_HUB_OFFLINE"] = "1"
+                os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
                 print(f"[*] Loading HuggingFace model: {self.model_name}")
-                print(f"[*] OFFLINE MODE: Models must be pre-cached locally")
-                
+                print("[*] OFFLINE MODE: Models must be pre-cached locally")
+
                 # Check cache directories
-                hf_home = os.getenv('HF_HOME')
-                transformers_cache = os.getenv('TRANSFORMERS_CACHE')
+                hf_home = os.getenv("HF_HOME")
+                transformers_cache = os.getenv("TRANSFORMERS_CACHE")
                 if hf_home:
                     print(f"[*] HF_HOME: {hf_home}")
                 if transformers_cache:
                     print(f"[*] TRANSFORMERS_CACHE: {transformers_cache}")
-                
+
                 # Try to find the model in the local directory structure
                 # Pattern 1: flat --local-dir download  → {HF_HOME}/{org}--{model}/
                 # Pattern 2: standard HF hub cache      → {HF_HOME}/models--{org}--{model}/snapshots/{hash}/
                 model_to_load = self.model_name
 
                 if hf_home:
-                    flat_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
-                    hub_dir  = os.path.join(hf_home, 'models--' + self.model_name.replace('/', '--'))
+                    flat_dir = os.path.join(hf_home, self.model_name.replace("/", "--"))
+                    hub_dir = os.path.join(
+                        hf_home, "models--" + self.model_name.replace("/", "--")
+                    )
 
                     if os.path.isdir(flat_dir):
                         print(f"[*] Found model (flat --local-dir): {flat_dir}")
                         model_to_load = flat_dir
                     elif os.path.isdir(hub_dir):
                         # Resolve the most recent snapshot inside the HF hub cache dir
-                        snapshots_dir = os.path.join(hub_dir, 'snapshots')
+                        snapshots_dir = os.path.join(hub_dir, "snapshots")
                         if os.path.isdir(snapshots_dir):
                             snapshots = sorted(os.listdir(snapshots_dir))
                             if snapshots:
-                                snapshot_path = os.path.join(snapshots_dir, snapshots[-1])
-                                print(f"[*] Found model (HF hub cache snapshot): {snapshot_path}")
+                                snapshot_path = os.path.join(
+                                    snapshots_dir, snapshots[-1]
+                                )
+                                print(
+                                    f"[*] Found model (HF hub cache snapshot): {snapshot_path}"
+                                )
                                 model_to_load = snapshot_path
                             else:
-                                print(f"[*] Hub cache dir exists but has no snapshots: {hub_dir}")
+                                print(
+                                    f"[*] Hub cache dir exists but has no snapshots: {hub_dir}"
+                                )
                         else:
-                            print(f"[*] Hub cache dir exists but no 'snapshots' subdir: {hub_dir}")
+                            print(
+                                f"[*] Hub cache dir exists but no 'snapshots' subdir: {hub_dir}"
+                            )
                     else:
-                        print(f"[*] Model not found locally. Checked:")
+                        print("[*] Model not found locally. Checked:")
                         print(f"    flat:  {flat_dir}")
                         print(f"    hub:   {hub_dir}")
-                        print(f"[*] Will try model name with local_files_only=True: {self.model_name}")
-                
+                        print(
+                            f"[*] Will try model name with local_files_only=True: {self.model_name}"
+                        )
+
                 # Load tokenizer
                 print(f"[*] Loading tokenizer from: {model_to_load}")
-                
+
                 # Special handling for Llama models (fix vocab_file Path bug)
                 model_path_str = str(model_to_load)
-                
+
                 # For Llama models, force fast tokenizer to avoid SentencePiece Path bug
-                if 'llama' in self.model_name.lower():
-                    print(f"[*] Forcing fast tokenizer for Llama model to avoid vocab_file Path bug")
+                if "llama" in self.model_name.lower():
+                    print(
+                        "[*] Forcing fast tokenizer for Llama model to avoid vocab_file Path bug"
+                    )
                     tokenizer = AutoTokenizer.from_pretrained(
                         model_path_str,
                         trust_remote_code=True,
                         local_files_only=True,
-                        use_fast=True  # Force fast tokenizer
+                        use_fast=True,  # Force fast tokenizer
                     )
                 else:
                     tokenizer = AutoTokenizer.from_pretrained(
-                        model_path_str,
-                        trust_remote_code=True,
-                        local_files_only=True
+                        model_path_str, trust_remote_code=True, local_files_only=True
                     )
-                
+
                 # Ensure tokenizer has pad token set
                 if tokenizer.pad_token is None:
                     if tokenizer.eos_token:
                         tokenizer.pad_token = tokenizer.eos_token
                         print(f"[*] Set pad_token to eos_token: {tokenizer.eos_token}")
                     else:
-                        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-                        print(f"[*] Added [PAD] as pad_token")
-                
-                print(f"[*] Tokenizer loaded successfully")
-                print(f"[*] Pad token: {tokenizer.pad_token} (ID: {tokenizer.pad_token_id})")
-                print(f"[*] EOS token: {tokenizer.eos_token} (ID: {tokenizer.eos_token_id})")
-                
+                        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+                        print("[*] Added [PAD] as pad_token")
+
+                print("[*] Tokenizer loaded successfully")
+                print(
+                    f"[*] Pad token: {tokenizer.pad_token} (ID: {tokenizer.pad_token_id})"
+                )
+                print(
+                    f"[*] EOS token: {tokenizer.eos_token} (ID: {tokenizer.eos_token_id})"
+                )
+
                 # Determine device
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 print(f"[*] Device: {device}")
-                
+
                 # Set memory management environment variable
-                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
-                
+                os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
                 # Clear GPU cache before loading
                 if device == "cuda":
                     torch.cuda.empty_cache()
-                    print(f"[*] Cleared CUDA cache")
-                
+                    print("[*] Cleared CUDA cache")
+
                 # Determine dtype - use bfloat16 for better stability on large models
                 if device == "cuda":
                     # Check if bfloat16 is supported
                     if torch.cuda.is_bf16_supported():
                         dtype = torch.bfloat16
-                        print(f"[*] Using bfloat16 (supported by GPU)")
+                        print("[*] Using bfloat16 (supported by GPU)")
                     else:
                         dtype = torch.float16
-                        print(f"[*] Using float16 (bfloat16 not supported)")
+                        print("[*] Using float16 (bfloat16 not supported)")
                 else:
                     dtype = torch.float32
-                    print(f"[*] Using float32 (CPU mode)")
-                
+                    print("[*] Using float32 (CPU mode)")
+
                 # Set max memory per GPU - be more conservative
                 num_gpus = torch.cuda.device_count() if device == "cuda" else 0
-                
+
                 # Get available memory per GPU
                 if num_gpus > 0:
                     gpu_memory = []
@@ -243,42 +261,58 @@ class LLMAgent:
                         mem = torch.cuda.get_device_properties(i).total_memory
                         gpu_memory.append(mem / (1024**3))  # Convert to GB
                         print(f"[*] GPU {i}: {gpu_memory[-1]:.2f} GB total")
-                    
+
                     if num_gpus == 1:
                         # Single GPU: Use 95% of available memory (more aggressive since no offloading)
                         max_memory = {0: f"{int(gpu_memory[0] * 0.95)}GB"}
                         print(f"[*] Single GPU max memory: {max_memory}")
                     else:
                         # Multi-GPU: Use 90% per GPU, no CPU offloading
-                        max_memory = {i: f"{int(gpu_memory[i] * 0.90)}GB" for i in range(num_gpus)}
+                        max_memory = {
+                            i: f"{int(gpu_memory[i] * 0.90)}GB" for i in range(num_gpus)
+                        }
                         print(f"[*] Multi-GPU max memory (no CPU): {max_memory}")
                 else:
                     max_memory = None
-                
+
                 # Load model with appropriate settings for large models
-                print(f"[*] Loading model weights...")
-                
+                print("[*] Loading model weights...")
+
                 # Suppress the "meta device" warning - it's expected with CPU offloading
                 import warnings
-                warnings.filterwarnings("ignore", message=".*parameters are on the meta device.*")
-                
+
+                warnings.filterwarnings(
+                    "ignore", message=".*parameters are on the meta device.*"
+                )
+
                 # Try to use Flash Attention 2 for faster inference (requires flash-attn package)
                 attn_implementation = "eager"  # Default fallback
                 try:
                     import flash_attn
+
                     # Check if GPU supports Flash Attention (compute capability >= 8.0 for Ampere+)
-                    if device == "cuda" and hasattr(torch.cuda, 'get_device_capability'):
+                    if device == "cuda" and hasattr(
+                        torch.cuda, "get_device_capability"
+                    ):
                         compute_capability = torch.cuda.get_device_capability(0)
                         if compute_capability[0] >= 8:  # Ampere (A100, A6000) or newer
                             attn_implementation = "flash_attention_2"
-                            print(f"[*] Using Flash Attention 2 (GPU compute capability: {compute_capability})")
+                            print(
+                                f"[*] Using Flash Attention 2 (GPU compute capability: {compute_capability})"
+                            )
                         else:
-                            print(f"[*] Flash Attention available but GPU too old (compute capability: {compute_capability})")
-                            print(f"[*] Using eager attention (slower)")
+                            print(
+                                f"[*] Flash Attention available but GPU too old (compute capability: {compute_capability})"
+                            )
+                            print("[*] Using eager attention (slower)")
                 except ImportError:
-                    print(f"[*] Flash Attention not installed, using eager attention (slower)")
-                    print(f"[*] To enable Flash Attention: pip install flash-attn --no-build-isolation")
-                
+                    print(
+                        "[*] Flash Attention not installed, using eager attention (slower)"
+                    )
+                    print(
+                        "[*] To enable Flash Attention: pip install flash-attn --no-build-isolation"
+                    )
+
                 model_kwargs = {
                     "torch_dtype": dtype,
                     "low_cpu_mem_usage": True,
@@ -286,7 +320,7 @@ class LLMAgent:
                     "local_files_only": True,  # Don't try to download
                     "attn_implementation": attn_implementation,  # Use Flash Attention if available
                 }
-                
+
                 # For single GPU setups, force entire model on GPU 0 without offloading
                 # For multi-GPU setups, still use auto device mapping but prevent CPU offloading
                 if num_gpus == 1:
@@ -294,96 +328,121 @@ class LLMAgent:
                     model_kwargs["device_map"] = {"": 0}  # Force all layers to GPU 0
                     if max_memory:
                         model_kwargs["max_memory"] = max_memory
-                    print(f"[*] Single GPU detected - loading ENTIRE model on GPU 0 (no offloading)")
+                    print(
+                        "[*] Single GPU detected - loading ENTIRE model on GPU 0 (no offloading)"
+                    )
                 elif num_gpus > 1:
                     # Multi-GPU: Allow distribution across GPUs but prevent CPU offloading
                     model_kwargs["device_map"] = "auto"
                     if max_memory:
                         model_kwargs["max_memory"] = max_memory
-                    print(f"[*] Multi-GPU setup - distributing across {num_gpus} GPUs (no CPU offloading)")
+                    print(
+                        f"[*] Multi-GPU setup - distributing across {num_gpus} GPUs (no CPU offloading)"
+                    )
                 else:
                     model_kwargs["device_map"] = "auto"
-                    print(f"[*] CPU mode - using auto device mapping")
-                
-                print(f"[DEBUG] About to call AutoModelForCausalLM.from_pretrained()...")
+                    print("[*] CPU mode - using auto device mapping")
+
+                print(
+                    "[DEBUG] About to call AutoModelForCausalLM.from_pretrained()..."
+                )
                 print(f"[DEBUG] Model: {model_to_load}")
                 print(f"[DEBUG] Device map: {model_kwargs.get('device_map', 'N/A')}")
-                print(f"[DEBUG] This may take 1-2 minutes for large models...")
-                
+                print("[DEBUG] This may take 1-2 minutes for large models...")
+
                 model = AutoModelForCausalLM.from_pretrained(
-                    model_to_load,
-                    **model_kwargs
+                    model_to_load, **model_kwargs
                 )
-                
-                print(f"[DEBUG] AutoModelForCausalLM.from_pretrained() returned!")
-                print(f"[*] Model loaded successfully!")
+
+                print("[DEBUG] AutoModelForCausalLM.from_pretrained() returned!")
+                print("[*] Model loaded successfully!")
                 print(f"[DEBUG] Model class: {type(model).__name__}")
-                print(f"[DEBUG] Model device map: {model.hf_device_map if hasattr(model, 'hf_device_map') else 'N/A'}")
-                
+                print(
+                    f"[DEBUG] Model device map: {model.hf_device_map if hasattr(model, 'hf_device_map') else 'N/A'}"
+                )
+
                 # Clear cache again after loading
                 if device == "cuda":
                     torch.cuda.empty_cache()
-                    print(f"[*] Cleared CUDA cache after model loading")
-                
+                    print("[*] Cleared CUDA cache after model loading")
+
                 # Print memory usage
                 if device == "cuda":
                     for i in range(num_gpus):
                         allocated = torch.cuda.memory_allocated(i) / (1024**3)
                         reserved = torch.cuda.memory_reserved(i) / (1024**3)
-                        total = torch.cuda.get_device_properties(i).total_memory / (1024**3)
-                        print(f"[*] GPU {i} memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved, {total:.2f}GB total")
-                
+                        total = torch.cuda.get_device_properties(i).total_memory / (
+                            1024**3
+                        )
+                        print(
+                            f"[*] GPU {i} memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved, {total:.2f}GB total"
+                        )
+
                 # Set generation config directly instead of loading from pretrained
                 # This avoids potential network calls and hangs
-                print(f"[DEBUG] Setting up generation config...")
+                print("[DEBUG] Setting up generation config...")
                 try:
                     # Just set the essential parameters directly
-                    if hasattr(model, 'generation_config'):
+                    if hasattr(model, "generation_config"):
                         if model.generation_config.pad_token_id is None:
-                            model.generation_config.pad_token_id = tokenizer.eos_token_id
-                            print(f"[*] Set model pad_token_id to eos_token_id: {tokenizer.eos_token_id}")
-                    
+                            model.generation_config.pad_token_id = (
+                                tokenizer.eos_token_id
+                            )
+                            print(
+                                f"[*] Set model pad_token_id to eos_token_id: {tokenizer.eos_token_id}"
+                            )
+
                     # Also ensure tokenizer has pad token
                     if tokenizer.pad_token_id is None:
                         tokenizer.pad_token_id = tokenizer.eos_token_id
-                        print(f"[*] Set tokenizer pad_token_id to eos_token_id: {tokenizer.eos_token_id}")
-                    
-                    print(f"[DEBUG] Generation config setup complete")
+                        print(
+                            f"[*] Set tokenizer pad_token_id to eos_token_id: {tokenizer.eos_token_id}"
+                        )
+
+                    print("[DEBUG] Generation config setup complete")
                 except Exception as e:
                     print(f"[WARNING] Could not set generation config: {e}")
                     # Ensure tokenizer has pad token as fallback
                     if tokenizer.pad_token_id is None:
                         tokenizer.pad_token_id = tokenizer.eos_token_id
-                
+
                 # Test inference with a small prompt to ensure model works
                 # SKIP for models with 4+ GPUs - distributed models can hang during test
                 # For single GPU, we should NOT have CPU offloading, so always test
                 has_cpu_offload = False
-                if hasattr(model, 'hf_device_map'):
-                    has_cpu_offload = 'cpu' in str(model.hf_device_map.values())
-                
+                if hasattr(model, "hf_device_map"):
+                    has_cpu_offload = "cpu" in str(model.hf_device_map.values())
+
                 if num_gpus >= 4:
-                    print(f"[*] Skipping test inference (multi-GPU setup with {num_gpus} GPUs)")
-                    print(f"[*] Model ready for inference")
+                    print(
+                        f"[*] Skipping test inference (multi-GPU setup with {num_gpus} GPUs)"
+                    )
+                    print("[*] Model ready for inference")
                 elif has_cpu_offload:
-                    print(f"[*] WARNING: Model has CPU-offloaded layers despite single GPU setup!")
-                    print(f"[*] Model ready for inference (will be slower due to CPU offloading)")
+                    print(
+                        "[*] WARNING: Model has CPU-offloaded layers despite single GPU setup!"
+                    )
+                    print(
+                        "[*] Model ready for inference (will be slower due to CPU offloading)"
+                    )
                 else:
-                    print(f"[*] Testing model with small inference...")
+                    print("[*] Testing model with small inference...")
                     try:
-                        print(f"[DEBUG] Creating test input...")
-                        test_input = tokenizer("Hello", return_tensors="pt", padding=True)
-                        
+                        print("[DEBUG] Creating test input...")
+                        test_input = tokenizer(
+                            "Hello", return_tensors="pt", padding=True
+                        )
+
                         # Move input to same device as first model parameter
-                        print(f"[DEBUG] Finding model device...")
+                        print("[DEBUG] Finding model device...")
                         device_0 = next(model.parameters()).device
                         print(f"[DEBUG] First parameter on device: {device_0}")
-                        
-                        print(f"[DEBUG] Moving test input to device...")
+
+                        print("[DEBUG] Moving test input to device...")
                         test_input = {k: v.to(device_0) for k, v in test_input.items()}
-                        
+
                         # Run a tiny generation to verify it works
-                        print(f"[DEBUG] Running test generation (max_new_tokens=5)...")
+                        print("[DEBUG] Running test generation (max_new_tokens=5)...")
                         with torch.no_grad():
                             test_output = model.generate(
                                 **test_input,
@@ -392,76 +451,84 @@ class LLMAgent:
                                 pad_token_id=tokenizer.pad_token_id,
                                 eos_token_id=tokenizer.eos_token_id,
                             )
-                        print(f"[*] Test inference successful!")
+                        print("[*] Test inference successful!")
                         print(f"[DEBUG] Test output shape: {test_output.shape}")
-                        
+
                         # Clear cache after test
                         if device == "cuda":
                             torch.cuda.empty_cache()
-                            print(f"[DEBUG] Cleared cache after test")
-                            
+                            print("[DEBUG] Cleared cache after test")
+
                     except Exception as e:
                         print(f"[WARNING] Test inference failed: {e}")
-                        print(f"[WARNING] Model may not work properly during experiment")
+                        print(
+                            "[WARNING] Model may not work properly during experiment"
+                        )
                         import traceback
+
                         traceback.print_exc()
-                
-                return {
-                    'tokenizer': tokenizer,
-                    'model': model,
-                    'device': device
-                }
+
+                return {"tokenizer": tokenizer, "model": model, "device": device}
             except ImportError as e:
                 print(f"[ERROR] HuggingFace dependencies not available: {e}")
                 return None
             except Exception as e:
                 print(f"[ERROR] Failed to load HuggingFace model: {e}")
                 import traceback
+
                 traceback.print_exc()
                 return None
-        elif self.provider == 'mock':
+        elif self.provider == "mock":
             return "MOCK_CLIENT"
         return None
-    
+
     def _initialize_vllm(self):
         """Initialize vLLM for optimized inference (faster than standard transformers)."""
         from vllm import LLM, SamplingParams
-        
-        print(f"[*] Loading model with vLLM (optimized inference)")
+
+        print("[*] Loading model with vLLM (optimized inference)")
         print(f"[*] Model: {self.model_name}")
-        
+
         # FORCE OFFLINE MODE
-        os.environ['HF_HUB_OFFLINE'] = '1'
-        os.environ['TRANSFORMERS_OFFLINE'] = '1'
-        
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
         # Find model path
-        hf_home = os.getenv('HF_HOME')
+        hf_home = os.getenv("HF_HOME")
         model_to_load = self.model_name
 
         if hf_home:
-            flat_dir = os.path.join(hf_home, self.model_name.replace('/', '--'))
-            hub_dir  = os.path.join(hf_home, 'models--' + self.model_name.replace('/', '--'))
+            flat_dir = os.path.join(hf_home, self.model_name.replace("/", "--"))
+            hub_dir = os.path.join(
+                hf_home, "models--" + self.model_name.replace("/", "--")
+            )
 
             if os.path.isdir(flat_dir):
                 print(f"[*] Found model (flat --local-dir): {flat_dir}")
                 model_to_load = flat_dir
             elif os.path.isdir(hub_dir):
-                snapshots_dir = os.path.join(hub_dir, 'snapshots')
+                snapshots_dir = os.path.join(hub_dir, "snapshots")
                 if os.path.isdir(snapshots_dir):
                     snapshots = sorted(os.listdir(snapshots_dir))
                     if snapshots:
                         snapshot_path = os.path.join(snapshots_dir, snapshots[-1])
-                        print(f"[*] Found model (HF hub cache snapshot): {snapshot_path}")
+                        print(
+                            f"[*] Found model (HF hub cache snapshot): {snapshot_path}"
+                        )
                         model_to_load = snapshot_path
                     else:
-                        print(f"[*] Hub cache dir exists but has no snapshots: {hub_dir}")
+                        print(
+                            f"[*] Hub cache dir exists but has no snapshots: {hub_dir}"
+                        )
                 else:
-                    print(f"[*] Hub cache dir exists but no 'snapshots' subdir: {hub_dir}")
+                    print(
+                        f"[*] Hub cache dir exists but no 'snapshots' subdir: {hub_dir}"
+                    )
             else:
-                print(f"[*] Model not found locally. Checked:")
+                print("[*] Model not found locally. Checked:")
                 print(f"    flat:  {flat_dir}")
                 print(f"    hub:   {hub_dir}")
-        
+
         # Initialize vLLM
         # vLLM automatically uses all available GPUs and optimizations
         llm = LLM(
@@ -471,9 +538,10 @@ class LLMAgent:
             dtype="bfloat16",  # Use bfloat16 for better performance
             max_model_len=4096,  # Adjust based on your needs
             gpu_memory_utilization=0.90,  # Use 90% of GPU memory
-            tensor_parallel_size=os.getenv('CUDA_VISIBLE_DEVICES', '0').count(',') + 1,  # Auto-detect GPUs
+            tensor_parallel_size=os.getenv("CUDA_VISIBLE_DEVICES", "0").count(",")
+            + 1,  # Auto-detect GPUs
         )
-        
+
         # Scratchpad params — free reasoning, full token budget
         scratchpad_params = SamplingParams(
             temperature=self.temperature,
@@ -487,31 +555,29 @@ class LLMAgent:
             max_tokens=2048,
         )
 
-        print(f"[*] vLLM initialized successfully")
+        print("[*] vLLM initialized successfully")
 
         return {
-            'llm': llm,
-            'sampling_params': scratchpad_params,   # kept for legacy _call_llm path
-            'scratchpad_params': scratchpad_params,
-            'decision_params_base': decision_params_base,
-            'backend': 'vllm'
+            "llm": llm,
+            "sampling_params": scratchpad_params,  # kept for legacy _call_llm path
+            "scratchpad_params": scratchpad_params,
+            "decision_params_base": decision_params_base,
+            "backend": "vllm",
         }
-    
+
     def get_action_and_prediction(
-        self, 
-        observation: Dict[str, Any],
-        available_tools: List[str]
+        self, observation: Dict[str, Any], available_tools: List[str]
     ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         """
         Get action and optional prediction from LLM.
-        
+
         Args:
             observation: Current environment observation
             available_tools: List of available tool names
-            
+
         Returns:
             (action_dict, prediction_card)
-            
+
         Raises:
             RuntimeError: If LLM client is not initialized
         """
@@ -530,17 +596,19 @@ class LLMAgent:
             action, prediction = self._parse_llm_response(response, available_tools)
             if prediction is None:
                 prediction = {}
-            prediction['scratchpad_raw'] = response
+            prediction["scratchpad_raw"] = response
             return action, prediction
 
         # ── Inject system message on the very first step of each episode ──────
         # The system message carries the stable role/rules so they don't need to
         # be repeated in every user turn, saving tokens and giving a fixed anchor.
         if not self.messages:
-            self.messages.append({"role": "system", "content": self._build_system_message()})
+            self.messages.append(
+                {"role": "system", "content": self._build_system_message()}
+            )
 
         # ── vLLM: two-phase structured path ───────────────────────────────────
-        if isinstance(self.client, dict) and self.client.get('backend') == 'vllm':
+        if isinstance(self.client, dict) and self.client.get("backend") == "vllm":
             return self._get_action_vllm(observation, available_tools)
 
         # ── Everything else (HF transformers, OpenAI, Anthropic) ─────────────
@@ -556,9 +624,9 @@ class LLMAgent:
         # For HF transformers, keep 5 turns (10 messages) — the 4096-token input cap
         # means longer histories get truncated from the front anyway, so keeping
         # fewer turns avoids paying the tokenization cost for tokens that get dropped.
-        max_turns = 5   # keep last 5 user/assistant pairs = 10 messages
+        max_turns = 5  # keep last 5 user/assistant pairs = 10 messages
         if len(self.messages) > 1 + max_turns * 2:
-            self.messages = [self.messages[0]] + self.messages[-(max_turns * 2):]
+            self.messages = [self.messages[0]] + self.messages[-(max_turns * 2) :]
 
         # Debug: print short responses in full
         if len(response) < 500:
@@ -567,13 +635,11 @@ class LLMAgent:
         action, prediction = self._parse_llm_response(response, available_tools)
         if prediction is None:
             prediction = {}
-        prediction['scratchpad_raw'] = response
+        prediction["scratchpad_raw"] = response
         return action, prediction
 
     def _get_action_vllm(
-        self,
-        observation: Dict[str, Any],
-        available_tools: List[str]
+        self, observation: Dict[str, Any], available_tools: List[str]
     ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         """
         Two-phase vLLM inference with full conversation history:
@@ -593,8 +659,8 @@ class LLMAgent:
         self.messages.append({"role": "user", "content": scratchpad_prompt})
         scratchpad_raw = self._call_llm_vllm_chat(
             scratchpad_prompt,
-            self.client['scratchpad_params'],
-            messages=self.messages          # pass full history
+            self.client["scratchpad_params"],
+            messages=self.messages,  # pass full history
         )
 
         # Strip markdown fences before using scratchpad as Phase 2 context
@@ -605,7 +671,7 @@ class LLMAgent:
         self.messages.append({"role": "assistant", "content": scratchpad_raw})
         max_turns = 10
         if len(self.messages) > 1 + max_turns * 2:
-            self.messages = [self.messages[0]] + self.messages[-(max_turns * 2):]
+            self.messages = [self.messages[0]] + self.messages[-(max_turns * 2) :]
 
         # ── Phase 2: constrained JSON decision ────────────────────────────────
         schema = json.loads(json.dumps(DECISION_SCHEMA))
@@ -619,19 +685,21 @@ class LLMAgent:
         )
 
         # Include real SKU/supplier IDs so the constrained decoder fills valid values
-        sku_ids      = observation.get('sku_ids',      list(observation.get('storage', {}).keys()))
-        supplier_ids = observation.get('supplier_ids', [])
+        sku_ids = observation.get(
+            "sku_ids", list(observation.get("storage", {}).keys())
+        )
+        supplier_ids = observation.get("supplier_ids", [])
 
         decision_prompt = (
             "Based on your reasoning, output your single next action as JSON.\n\n"
             f"<reasoning>\n{scratchpad}\n</reasoning>\n\n"
             "Available tools:\n"
-            + "\n".join(f"  - {t}" for t in available_tools) +
-            f"\n\nValid SKU IDs: {sku_ids}"
+            + "\n".join(f"  - {t}" for t in available_tools)
+            + f"\n\nValid SKU IDs: {sku_ids}"
             f"\nValid supplier IDs: {supplier_ids}"
             "\n\nJSON field guidance:"
-            "\n  tool_order              → args: {\"supplier_id\": \"<one of above>\", \"sku\": \"<one of above>\", \"quantity\": <int>}"
-            "\n  tool_ship_customer_order → args: {\"customer_order_id\": \"CO<N>\"}"
+            '\n  tool_order              → args: {"supplier_id": "<one of above>", "sku": "<one of above>", "quantity": <int>}'
+            '\n  tool_ship_customer_order → args: {"customer_order_id": "CO<N>"}'
             "\n  check tools             → args: {}"
         )
 
@@ -652,8 +720,8 @@ class LLMAgent:
 
         if prediction is None:
             prediction = {}
-        prediction['scratchpad_raw'] = scratchpad_raw
-        prediction['decision_raw']   = raw
+        prediction["scratchpad_raw"] = scratchpad_raw
+        prediction["decision_raw"] = raw
 
         return action, prediction
 
@@ -661,28 +729,33 @@ class LLMAgent:
     def _strip_markdown(text: str) -> str:
         """Remove markdown code fences that some models emit despite being told not to."""
         import re
-        lines = text.split('\n')
+
+        lines = text.split("\n")
         cleaned = []
         in_fence = False
         for line in lines:
             # Match ``` with optional language tag: ```python, ```json, ``` etc.
-            if line.strip().startswith('```'):
+            if line.strip().startswith("```"):
                 in_fence = not in_fence
-                continue          # drop the fence line itself
+                continue  # drop the fence line itself
             if not in_fence:
                 cleaned.append(line)
         # If we ended mid-fence (odd number of fences), toggle got out of sync —
         # fall back to regex strip of all fence markers instead.
         if in_fence:
-            text = re.sub(r'```[\w]*\n?', '', text)
-            text = re.sub(r'```', '', text)
+            text = re.sub(r"```[\w]*\n?", "", text)
+            text = re.sub(r"```", "", text)
             return text.strip()
-        result = '\n'.join(cleaned).strip()
+        result = "\n".join(cleaned).strip()
         # If stripping removed everything meaningful, return original unchanged
         return result if len(result) > 20 else text
 
-    def _call_llm_vllm_chat(self, prompt: str, sampling_params,
-                             messages: Optional[List[Dict[str, Any]]] = None) -> str:
+    def _call_llm_vllm_chat(
+        self,
+        prompt: str,
+        sampling_params,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         """
         Call vLLM using the model's chat template.
 
@@ -693,17 +766,19 @@ class LLMAgent:
         apply_chat_template wraps the conversation as the model expects, preventing
         instruction-tuned models from echoing the THOUGHTS:/ACTION:/ARGS: format.
         """
-        llm = self.client['llm']
+        llm = self.client["llm"]
         tokenizer = llm.get_tokenizer()
 
         # Use provided history or fall back to a single-turn conversation
-        chat_messages = messages if messages is not None else [{"role": "user", "content": prompt}]
+        chat_messages = (
+            messages if messages is not None else [{"role": "user", "content": prompt}]
+        )
 
         try:
             formatted = tokenizer.apply_chat_template(
                 chat_messages,
                 tokenize=False,
-                add_generation_prompt=True   # appends the assistant turn opener
+                add_generation_prompt=True,  # appends the assistant turn opener
             )
         except Exception:
             # Tokenizer has no chat template — fall back to raw prompt
@@ -711,7 +786,7 @@ class LLMAgent:
 
         outputs = llm.generate([formatted], sampling_params)
         return outputs[0].outputs[0].text.strip()
-    
+
     def _call_llm_with_history(self) -> str:
         """
         Call the LLM using the full conversation history in self.messages.
@@ -719,64 +794,62 @@ class LLMAgent:
         Gives the model memory of its prior actions and tool results so it does
         not restart reasoning from scratch on every step.
         """
-        if self.provider == 'openai':
+        if self.provider == "openai":
             try:
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=self.messages,
                     temperature=self.temperature,
-                    max_tokens=self.max_tokens
+                    max_tokens=self.max_tokens,
                 )
                 return response.choices[0].message.content
             except Exception as e:
                 return f"Error calling OpenAI: {e}"
 
-        elif self.provider == 'anthropic':
+        elif self.provider == "anthropic":
             try:
                 response = self.client.messages.create(
                     model=self.model_name,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
-                    messages=self.messages
+                    messages=self.messages,
                 )
                 return response.content[0].text
             except Exception as e:
                 return f"Error calling Anthropic: {e}"
 
-        elif self.provider == 'huggingface':
+        elif self.provider == "huggingface":
             # Use apply_chat_template for proper chat formatting — the same approach
             # as _call_llm_vllm_chat.  Raw string concatenation ("User: ... \n\n
             # Assistant: ...") causes the model to continue the previous truncated
             # turn rather than starting a fresh assistant reply.
-            tokenizer = self.client['tokenizer']
+            tokenizer = self.client["tokenizer"]
             try:
                 formatted = tokenizer.apply_chat_template(
-                    self.messages,
-                    tokenize=False,
-                    add_generation_prompt=True
+                    self.messages, tokenize=False, add_generation_prompt=True
                 )
             except Exception:
                 # Tokenizer has no chat template — fall back to plain last prompt
-                formatted = self.messages[-1]['content'] if self.messages else ""
+                formatted = self.messages[-1]["content"] if self.messages else ""
             return self._call_llm(formatted)
 
         # Fallback — should not be reached for supported providers
-        return self._call_llm(self.messages[-1]['content'] if self.messages else "")
+        return self._call_llm(self.messages[-1]["content"] if self.messages else "")
 
     def _call_llm(self, prompt: str) -> str:
         """
         Call the LLM provider.
-        
+
         Args:
             prompt: Prompt text
-            
+
         Returns:
             LLM response
         """
         if self.client is None:
             # No client available, return dummy response
             return "No LLM client configured"
-        
+
         if self.client == "MOCK_CLIENT":
             # Cycle through a realistic customer-order fulfillment workflow so
             # the demo shows all phases: discover → stock check → ship → reorder.
@@ -792,7 +865,7 @@ class LLMAgent:
             # Derive the customer order ID to ship on this cycle
             # CO index increments by 1 each full cycle (every 5 steps)
             cycle = (self._mock_step - 1) // 5
-            co_id = f"CO{cycle * 5 + 1}"   # CO1, CO6, CO11, ...
+            co_id = f"CO{cycle * 5 + 1}"  # CO1, CO6, CO11, ...
 
             mock_responses = [
                 # Phase 0 — check inbox
@@ -818,7 +891,7 @@ class LLMAgent:
                     f"THOUGHTS:\n"
                     f"I have customer order {co_id} to fulfil. I'll ship it now to earn revenue.\n"
                     f"ACTION: tool_ship_customer_order\n"
-                    f"ARGS: {{\"customer_order_id\": \"{co_id}\"}}\n"
+                    f'ARGS: {{"customer_order_id": "{co_id}"}}\n'
                     f"PREDICTION: The order will be shipped and revenue added to my budget.\n"
                     f"SUCCESS: true"
                 ),
@@ -828,7 +901,7 @@ class LLMAgent:
                     "I should keep sku_0 stocked so I can fulfil future customer orders. "
                     "Ordering 10 units from S1.\n"
                     "ACTION: tool_order\n"
-                    "ARGS: {\"supplier_id\": \"S1\", \"sku\": \"sku_0\", \"quantity\": 10}\n"
+                    'ARGS: {"supplier_id": "S1", "sku": "sku_0", "quantity": 10}\n'
                     "PREDICTION: Stock will arrive within a few days.\n"
                     "SUCCESS: true"
                 ),
@@ -843,93 +916,112 @@ class LLMAgent:
                 ),
             ]
             return mock_responses[phase]
-        
+
         # Check if using vLLM backend
-        if isinstance(self.client, dict) and self.client.get('backend') == 'vllm':
+        if isinstance(self.client, dict) and self.client.get("backend") == "vllm":
             try:
-                llm = self.client['llm']
-                sampling_params = self.client['sampling_params']
-                
-                print(f"[DEBUG] Running vLLM inference...")
+                llm = self.client["llm"]
+                sampling_params = self.client["sampling_params"]
+
+                print("[DEBUG] Running vLLM inference...")
                 outputs = llm.generate([prompt], sampling_params)
                 response = outputs[0].outputs[0].text
-                print(f"[DEBUG] vLLM inference complete")
+                print("[DEBUG] vLLM inference complete")
                 return response.strip()
             except Exception as e:
                 return f"Error calling vLLM: {e}"
-        
-        if self.provider == 'openai':
+
+        if self.provider == "openai":
             try:
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=self.temperature,
-                    max_tokens=self.max_tokens
+                    max_tokens=self.max_tokens,
                 )
                 return response.choices[0].message.content
             except Exception as e:
                 return f"Error calling OpenAI: {e}"
-        
-        elif self.provider == 'anthropic':
+
+        elif self.provider == "anthropic":
             try:
                 response = self.client.messages.create(
                     model=self.model_name,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
-                    messages=[{"role": "user", "content": prompt}]
+                    messages=[{"role": "user", "content": prompt}],
                 )
                 return response.content[0].text
             except Exception as e:
                 return f"Error calling Anthropic: {e}"
-        
-        elif self.provider == 'huggingface':
+
+        elif self.provider == "huggingface":
             try:
-                import torch
                 import time
-                
-                print(f"[DEBUG] Starting HuggingFace inference...")
+
+                import torch
+
+                print("[DEBUG] Starting HuggingFace inference...")
                 start_time = time.time()
-                
-                tokenizer = self.client['tokenizer']
-                model = self.client['model']
-                device = self.client['device']
-                
-                print(f"[DEBUG] Retrieved tokenizer, model, device ({time.time() - start_time:.2f}s)")
-                
+
+                tokenizer = self.client["tokenizer"]
+                model = self.client["model"]
+                device = self.client["device"]
+
+                print(
+                    f"[DEBUG] Retrieved tokenizer, model, device ({time.time() - start_time:.2f}s)"
+                )
+
                 # Tokenize input — cap at 4096 tokens.  History is included via
                 # apply_chat_template so 4096 comfortably fits ~8 turns + system msg.
                 # We do NOT use context_length (often 128k) as the cap because
                 # tokenizing + attending over 8k+ tokens with HF is very slow.
-                print(f"[DEBUG] Tokenizing input (prompt length: {len(prompt)} chars)...")
+                print(
+                    f"[DEBUG] Tokenizing input (prompt length: {len(prompt)} chars)..."
+                )
                 tokenize_start = time.time()
                 max_input_len = 4096
-                inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, max_length=max_input_len)
-                print(f"[DEBUG] Tokenization complete ({time.time() - tokenize_start:.2f}s, {inputs['input_ids'].shape[1]} tokens)")
-                
+                inputs = tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=max_input_len,
+                )
+                print(
+                    f"[DEBUG] Tokenization complete ({time.time() - tokenize_start:.2f}s, {inputs['input_ids'].shape[1]} tokens)"
+                )
+
                 # Move inputs to device
-                print(f"[DEBUG] Moving inputs to device...")
+                print("[DEBUG] Moving inputs to device...")
                 move_start = time.time()
                 # Get the device of the first model parameter
                 first_param_device = next(model.parameters()).device
                 print(f"[DEBUG] First model parameter is on: {first_param_device}")
                 inputs = {k: v.to(first_param_device) for k, v in inputs.items()}
-                print(f"[DEBUG] Inputs moved to {first_param_device} ({time.time() - move_start:.2f}s)")
-                
+                print(
+                    f"[DEBUG] Inputs moved to {first_param_device} ({time.time() - move_start:.2f}s)"
+                )
+
                 # Print memory before generation
                 if device == "cuda":
                     for i in range(torch.cuda.device_count()):
                         allocated = torch.cuda.memory_allocated(i) / (1024**3)
                         reserved = torch.cuda.memory_reserved(i) / (1024**3)
-                        print(f"[DEBUG] GPU {i} before generation: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
-                
+                        print(
+                            f"[DEBUG] GPU {i} before generation: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved"
+                        )
+
                 # Generate response.
                 # use_cache=True is critical for performance — without it the model
                 # re-processes all input tokens for every generated token (O(n²)).
                 # If the DynamicCache error resurfaces (transformers >= 4.36 issue),
                 # we catch it and retry once with use_cache=False as a fallback.
-                print(f"[DEBUG] Starting model.generate() with max_new_tokens={min(self.max_tokens, 512)}...")
+                print(
+                    f"[DEBUG] Starting model.generate() with max_new_tokens={min(self.max_tokens, 512)}..."
+                )
                 gen_start = time.time()
-                
+
                 def _generate(use_cache_flag: bool):
                     with torch.no_grad():
                         return model.generate(
@@ -937,55 +1029,70 @@ class LLMAgent:
                             max_new_tokens=min(self.max_tokens, 512),
                             temperature=self.temperature,
                             do_sample=True if self.temperature > 0 else False,
-                            pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id else tokenizer.eos_token_id,
+                            pad_token_id=(
+                                tokenizer.pad_token_id
+                                if tokenizer.pad_token_id
+                                else tokenizer.eos_token_id
+                            ),
                             eos_token_id=tokenizer.eos_token_id,
                             use_cache=use_cache_flag,
                             num_beams=1,
                         )
-                
+
                 try:
                     outputs = _generate(use_cache_flag=True)
                 except Exception as cache_err:
-                    if "DynamicCache" in str(cache_err) or "cache" in str(cache_err).lower():
-                        print(f"[DEBUG] KV cache error ({cache_err}), retrying with use_cache=False")
+                    if (
+                        "DynamicCache" in str(cache_err)
+                        or "cache" in str(cache_err).lower()
+                    ):
+                        print(
+                            f"[DEBUG] KV cache error ({cache_err}), retrying with use_cache=False"
+                        )
                         outputs = _generate(use_cache_flag=False)
                     else:
                         raise
-                
+
                 gen_time = time.time() - gen_start
-                print(f"[DEBUG] Generation complete ({gen_time:.2f}s, {gen_time/60:.1f} min)")
-                
+                print(
+                    f"[DEBUG] Generation complete ({gen_time:.2f}s, {gen_time/60:.1f} min)"
+                )
+
                 # Print memory after generation
                 if device == "cuda":
                     for i in range(torch.cuda.device_count()):
                         allocated = torch.cuda.memory_allocated(i) / (1024**3)
                         reserved = torch.cuda.memory_reserved(i) / (1024**3)
-                        print(f"[DEBUG] GPU {i} after generation: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
-                
+                        print(
+                            f"[DEBUG] GPU {i} after generation: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved"
+                        )
+
                 # Decode response (skip the input prompt)
-                print(f"[DEBUG] Decoding response...")
+                print("[DEBUG] Decoding response...")
                 decode_start = time.time()
                 response = tokenizer.decode(
-                    outputs[0][inputs['input_ids'].shape[1]:],
-                    skip_special_tokens=True
+                    outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
                 )
                 print(f"[DEBUG] Decoding complete ({time.time() - decode_start:.2f}s)")
-                
+
                 total_time = time.time() - start_time
-                print(f"[DEBUG] Total inference time: {total_time:.2f}s ({total_time/60:.1f} min)")
+                print(
+                    f"[DEBUG] Total inference time: {total_time:.2f}s ({total_time/60:.1f} min)"
+                )
                 print(f"[DEBUG] Response length: {len(response)} chars")
-                
+
                 return response.strip()
-            
+
             except Exception as e:
                 import traceback
+
                 error_details = traceback.format_exc()
                 print(f"[ERROR] HuggingFace generation failed: {e}")
                 print(f"[ERROR] Traceback: {error_details}")
                 return f"Error calling HuggingFace model: {e}"
-        
+
         return "Unknown provider"
-    
+
     def _build_system_message(self) -> str:
         """
         Build the one-time system message injected at the start of every episode.
@@ -994,12 +1101,12 @@ class LLMAgent:
         steps — kept out of the per-step user prompt to save tokens and to give
         the model a stable anchor in its context window.
         """
-        max_failures = self.config.get('demand', {}).get('max_failures', 25)
-        expire_days  = self.config.get('demand', {}).get('expire_after_days', 10)
+        max_failures = self.config.get("demand", {}).get("max_failures", 25)
+        expire_days = self.config.get("demand", {}).get("expire_after_days", 10)
         # max_steps may live under 'simulation.*' (phase overrides) or 'env.*' (base)
-        sim_cfg   = self.config.get('env', self.config.get('simulation', {}))
-        sim_over  = self.config.get('simulation', {})
-        max_steps = sim_over.get('max_steps', sim_cfg.get('max_steps', 1000))
+        sim_cfg = self.config.get("env", self.config.get("simulation", {}))
+        sim_over = self.config.get("simulation", {})
+        max_steps = sim_over.get("max_steps", sim_cfg.get("max_steps", 1000))
 
         return f"""You are an autonomous supply chain agent managing a warehouse.
 
@@ -1041,7 +1148,9 @@ TOOL SIGNATURES:
 
 Think through what you know and what the best next action is."""
 
-    def _build_prompt(self, observation: Dict[str, Any], available_tools: List[str]) -> str:
+    def _build_prompt(
+        self, observation: Dict[str, Any], available_tools: List[str]
+    ) -> str:
         """Build the per-step observation card sent as the user turn each step.
 
         Role, rules, and tool signatures live in _build_system_message() (sent once).
@@ -1052,34 +1161,40 @@ Think through what you know and what the best next action is."""
         Quantities and order details are hidden unless the agent just checked them.
         SKU IDs and supplier IDs are ALWAYS shown — they are vocabulary, not state.
         """
-        last_action_msg = str(observation.get('message', ''))
+        last_action_msg = str(observation.get("message", ""))
 
         # ── Blind state: reveal quantities only when the agent just checked them ──
-        budget_display          = "Unknown (use tool_check_budget)"
-        storage_display         = "Unknown (use tool_check_storage)"
-        orders_display          = "Unknown (use tool_check_inbox)"
+        budget_display = "Unknown (use tool_check_budget)"
+        storage_display = "Unknown (use tool_check_storage)"
+        orders_display = "Unknown (use tool_check_inbox)"
         customer_orders_display = "Unknown (use tool_check_inbox)"
 
         msg_lower = last_action_msg.lower()
-        if 'budget' in msg_lower or 'balance' in msg_lower or 'check_budget' in msg_lower:
+        if (
+            "budget" in msg_lower
+            or "balance" in msg_lower
+            or "check_budget" in msg_lower
+        ):
             budget_display = f"${observation.get('budget', 0):.2f}"
 
-        if 'storage' in msg_lower or 'stock' in msg_lower or 'inventory' in msg_lower:
-            storage_display = str(observation.get('storage', {}))
+        if "storage" in msg_lower or "stock" in msg_lower or "inventory" in msg_lower:
+            storage_display = str(observation.get("storage", {}))
 
-        if 'order' in msg_lower and 'pending' in msg_lower:
-            pending = observation.get('pending_orders', 0)
-            count   = len(pending) if isinstance(pending, list) else pending
+        if "order" in msg_lower and "pending" in msg_lower:
+            pending = observation.get("pending_orders", 0)
+            count = len(pending) if isinstance(pending, list) else pending
             orders_display = f"{count} active supplier orders"
 
-        if 'customer_order' in msg_lower:
+        if "customer_order" in msg_lower:
             customer_orders_display = (
                 f"{observation.get('open_customer_orders', '?')} open customer orders"
             )
 
         # ── Always-visible metadata (needed to form valid tool calls) ────────────
-        sku_ids      = observation.get('sku_ids',      list(observation.get('storage', {}).keys()))
-        supplier_ids = observation.get('supplier_ids', [])
+        sku_ids = observation.get(
+            "sku_ids", list(observation.get("storage", {}).keys())
+        )
+        supplier_ids = observation.get("supplier_ids", [])
 
         return f"""--- DAY {observation.get('day', '?')} ---
 
@@ -1120,48 +1235,49 @@ SUCCESS: <true/false>
 """
 
     def _parse_llm_response(
-        self, 
-        response: str, 
-        available_tools: List[str]
+        self, response: str, available_tools: List[str]
     ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         """
         Parse LLM response into action and prediction.
-        
+
         Args:
             response: LLM output string
             available_tools: List of valid tool names
-            
+
         Returns:
             (action_dict, prediction_card)
         """
         import json
-        
-        lines = response.strip().split('\n')
-        
+
+        lines = response.strip().split("\n")
+
         action_tool = None
         action_args = {}
         prediction_text = None
         expected_success = True
-        
+
         # State machine for parsing
         current_section = None
-        
+
         for line in lines:
             line = line.strip()
-            if not line: continue
-            
+            if not line:
+                continue
+
             # Detect section headers
-            if line.startswith('ACTION:'):
+            if line.startswith("ACTION:"):
                 try:
-                    action_tool = line.split('ACTION:', 1)[1].strip()
+                    action_tool = line.split("ACTION:", 1)[1].strip()
                     # Remove any trailing comments or quotes
-                    action_tool = action_tool.split('#')[0].strip().strip("'").strip('"')
+                    action_tool = (
+                        action_tool.split("#")[0].strip().strip("'").strip('"')
+                    )
                 except IndexError:
                     pass
-                current_section = 'ACTION'
+                current_section = "ACTION"
                 continue
-            elif line.startswith('ARGS:'):
-                args_str = line.split('ARGS:', 1)[1].strip()
+            elif line.startswith("ARGS:"):
+                args_str = line.split("ARGS:", 1)[1].strip()
                 try:
                     # simplistic fix for single quotes which some models use
                     # only replace if it looks like python dict
@@ -1170,35 +1286,34 @@ SUCCESS: <true/false>
                     action_args = json.loads(args_str)
                 except Exception as e:
                     print(f"  [monitor] Failed to parse ARGS: {args_str} ({e})")
-                current_section = 'ARGS'
+                current_section = "ARGS"
                 continue
-            elif line.startswith('PREDICTION:'):
-                prediction_text = line.split('PREDICTION:', 1)[1].strip()
-                current_section = 'PREDICTION'
+            elif line.startswith("PREDICTION:"):
+                prediction_text = line.split("PREDICTION:", 1)[1].strip()
+                current_section = "PREDICTION"
                 continue
-            elif line.startswith('SUCCESS:'):
-                success_str = line.split('SUCCESS:', 1)[1].strip().lower()
-                expected_success = success_str in ['true', 'yes', '1']
-                current_section = 'SUCCESS'
+            elif line.startswith("SUCCESS:"):
+                success_str = line.split("SUCCESS:", 1)[1].strip().lower()
+                expected_success = success_str in ["true", "yes", "1"]
+                current_section = "SUCCESS"
                 continue
-            elif line.startswith('THOUGHTS:'):
-                current_section = 'THOUGHTS'
+            elif line.startswith("THOUGHTS:"):
                 continue
 
         # Validate tool
-        if not action_tool: 
+        if not action_tool:
             # If no action found, try to find the first valid tool in the text as fallback
             # This handles models that forget the 'ACTION:' prefix
             for tool in available_tools:
                 if tool in response:
                     action_tool = tool
                     break
-        
+
         if not action_tool or action_tool not in available_tools:
-             # Default fallback if parsing completely fails
-             action_tool = 'tool_check_inbox'
-             action_args = {}
-        
+            # Default fallback if parsing completely fails
+            action_tool = "tool_check_inbox"
+            action_args = {}
+
         # Ensure args are dict
         if not isinstance(action_args, dict):
             action_args = {}
@@ -1208,33 +1323,38 @@ SUCCESS: <true/false>
         # execute the action so it returns a {'success': False, 'error': ...} that
         # gets fed back into the agent's context via last_message.  Silent fallbacks
         # hide the failure from the model and prevent it from learning.
-        if action_tool == 'tool_order':
-            missing = [k for k in ['supplier_id', 'sku', 'quantity'] if k not in action_args]
+        if action_tool == "tool_order":
+            missing = [
+                k for k in ["supplier_id", "sku", "quantity"] if k not in action_args
+            ]
             if missing:
-                print(f"  [monitor] tool_order missing args {missing}: {action_args} — sending to env anyway so agent sees the error")
-        elif action_tool == 'tool_quote':
-            missing = [k for k in ['supplier_id', 'sku', 'qty'] if k not in action_args]
+                print(
+                    f"  [monitor] tool_order missing args {missing}: {action_args} — sending to env anyway so agent sees the error"
+                )
+        elif action_tool == "tool_quote":
+            missing = [k for k in ["supplier_id", "sku", "qty"] if k not in action_args]
             if missing:
-                print(f"  [monitor] tool_quote missing args {missing}: {action_args} — sending to env anyway so agent sees the error")
-        elif action_tool == 'tool_cancel_order' and 'order_id' not in action_args:
-            print(f"  [monitor] tool_cancel_order missing order_id: {action_args} — sending to env anyway")
+                print(
+                    f"  [monitor] tool_quote missing args {missing}: {action_args} — sending to env anyway so agent sees the error"
+                )
+        elif action_tool == "tool_cancel_order" and "order_id" not in action_args:
+            print(
+                f"  [monitor] tool_cancel_order missing order_id: {action_args} — sending to env anyway"
+            )
 
-        action = {
-            'tool': action_tool,
-            'args': action_args
-        }
-        
+        action = {"tool": action_tool, "args": action_args}
+
         # Build prediction card
         prediction = None
-        if self.prediction_mode != 'none':
+        if self.prediction_mode != "none":
             prediction = {
-                'tool': action_tool,
-                'args': action_args,
-                'expected_success': expected_success,
-                'prediction_text': prediction_text,
+                "tool": action_tool,
+                "args": action_args,
+                "expected_success": expected_success,
+                "prediction_text": prediction_text,
                 # scratchpad_raw is attached in get_action_and_prediction
             }
-        
+
         return action, prediction
 
     def reset(self):

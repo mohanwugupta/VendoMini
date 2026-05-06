@@ -1,6 +1,5 @@
 """Simple HuggingFace model downloader for Windows."""
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,8 +15,9 @@ MODELS = [
     "meta-llama/Llama-3.1-8B-Instruct",
     "allenai/OLMo-2-1124-13B-Instruct",
     "Qwen/Qwen3-32B",
-    "deepseek-ai/deepseek-llm-7b-chat"
+    "deepseek-ai/deepseek-llm-7b-chat",
 ]
+
 
 def download_model(repo_id: str):
     """Download a model using huggingface-cli."""
@@ -27,15 +27,18 @@ def download_model(repo_id: str):
 
     try:
         # Convert repo_id to directory name (org/name -> org--name)
-        dir_name = repo_id.replace('/', '--')
+        dir_name = repo_id.replace("/", "--")
         model_dir = MODELS_DIR / dir_name
-        
+
         # Use huggingface-cli for more reliable downloads
         cmd = [
-            "huggingface-cli", "download",
+            "huggingface-cli",
+            "download",
             repo_id,
-            "--local-dir", str(model_dir),
-            "--local-dir-use-symlinks", "False"
+            "--local-dir",
+            str(model_dir),
+            "--local-dir-use-symlinks",
+            "False",
         ]
 
         print(f"Running: {' '.join(cmd)}")
@@ -55,6 +58,7 @@ def download_model(repo_id: str):
         print(f"❌ Exception downloading {repo_id}: {e}")
         return False
 
+
 def main():
     print("🚀 Starting HuggingFace Model Downloads (CLI method)")
     print(f"📁 Download directory: {MODELS_DIR}")
@@ -63,9 +67,17 @@ def main():
     # Authenticate first
     print("\n🔐 Authenticating with HuggingFace...")
     try:
-        result = subprocess.run([
-            "huggingface-cli", "login", "--token", "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"
-        ], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            [
+                "huggingface-cli",
+                "login",
+                "--token",
+                "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",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         print("✅ Successfully authenticated with HuggingFace")
     except subprocess.CalledProcessError as e:
         print(f"❌ Authentication failed: {e}")
@@ -82,9 +94,9 @@ def main():
             failed.append(repo_id)
 
     # Summary
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("📊 DOWNLOAD SUMMARY")
-    print("="*60)
+    print("=" * 60)
     print(f"✅ Successfully downloaded: {len(downloaded)}/{len(MODELS)}")
     for model in downloaded:
         print(f"  ✓ {model}")
@@ -96,6 +108,7 @@ def main():
 
     print(f"\n📁 All models stored in: {MODELS_DIR}")
     print("\n✅ Download process complete!")
+
 
 if __name__ == "__main__":
     main()

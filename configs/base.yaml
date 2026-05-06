@@ -17,31 +17,31 @@ agent:
     temperature: 0.3
     max_tokens_per_call: 2000
   interface:
-    prediction_mode: required      # required | optional | required+confidence | required+uncertainty | required+full
-    prediction_format: structured  # minimal | structured | rich
-    memory_tools: full             # none | basic | full
-    recovery_tools: none           # none | reset | audit | help | all
+    prediction_mode: required # required | optional | required+confidence | required+uncertainty | required+full
+    prediction_format: structured # minimal | structured | rich
+    memory_tools: full # none | basic | full
+    recovery_tools: none # none | reset | audit | help | all
 
 crash_detector:
   threshold: moderate
   window_size: 20
-  continue_after_crash: 50  # Continue for N steps after crash detected
+  continue_after_crash: 50 # Continue for N steps after crash detected
 
 demand:
   # ~0.5 new customer orders per day at complexity_level 1 (10 SKUs × 0.05)
   # Gives the agent a realistic chance to procure stock before orders expire.
-  p_customer_order: 0.05   # per-SKU probability each step
-  due_days: 7              # days before an order is flagged overdue
-  expire_after_days: 14    # days before an unserviced order is counted as a failure
-  max_failures: 25         # episode ends when this many orders fail
-  sale_markup: 1.6         # sale price = min supplier cost × markup
-  late_penalty: 0.0        # no late fee (orders just expire)
+  p_customer_order: 0.05 # per-SKU probability each step
+  due_days: 7 # days before an order is flagged overdue
+  expire_after_days: 14 # days before an unserviced order is counted as a failure
+  max_failures: 25 # episode ends when this many orders fail
+  sale_markup: 1.6 # sale price = min supplier cost × markup
+  late_penalty: 0.0 # no late fee (orders just expire)
 
 pe_induction:
-  p_shock: 0.10          # rate of error in environment
-  pe_mag: medium         # low | medium | high
+  p_shock: 0.10 # rate of error in environment
+  pe_mag: medium # low | medium | high
   pe_type_mix: realistic # realistic | temporal_only | quantity_only | causal_only | uniform
-  observability: full    # full | delayed | partial | hidden
+  observability: full # full | delayed | partial | hidden
 
 measurement:
   crash_threshold: moderate

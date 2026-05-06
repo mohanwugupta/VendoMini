@@ -1,13 +1,14 @@
 """VendoMini simulation environment."""
 
 import random
-from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class ShockType(Enum):
     """Types of shocks that can be injected."""
+
     TEMPORAL = "temporal"
     QUANTITY = "quantity"
     CAUSAL = "causal"
@@ -17,6 +18,7 @@ class ShockType(Enum):
 @dataclass
 class SKU:
     """Stock Keeping Unit."""
+
     id: str
     name: str
     storage_qty: int = 0
@@ -25,6 +27,7 @@ class SKU:
 @dataclass
 class Supplier:
     """Supplier with pricing and lead times."""
+
     id: str
     name: str
     base_lead_days: Dict[str, int] = field(default_factory=dict)  # sku_id -> days
@@ -35,6 +38,7 @@ class Supplier:
 @dataclass
 class Order:
     """Pending order."""
+
     order_id: str
     supplier_id: str
     sku_id: str
@@ -48,6 +52,7 @@ class Order:
 @dataclass
 class Shock:
     """Shock event."""
+
     shock_type: ShockType
     magnitude: str  # low, medium, high
     affected_order: Optional[str] = None
@@ -59,85 +64,89 @@ class Shock:
 @dataclass
 class CustomerOrder:
     """A customer order that the agent must fulfil by shipping from inventory."""
+
     order_id: str
     sku_id: str
     quantity: int
-    unit_sale_price: float   # revenue per unit when shipped
+    unit_sale_price: float  # revenue per unit when shipped
     request_day: int
     due_day: int
-    status: str = "open"     # open, shipped, expired
+    status: str = "open"  # open, shipped, expired
     ship_day: Optional[int] = None
 
 
 class VendoMiniEnv:
     """
     VendoMini warehouse simulation environment.
-    
+
     Manages state, executes tools, injects shocks, and tracks the simulation.
     """
-    
+
     def __init__(self, config: Dict[str, Any], seed: Optional[int] = None):
         """
         Initialize the environment.
-        
+
         Args:
             config: Configuration dictionary
             seed: Random seed for reproducibility
         """
         self.config = config
-        self.seed = seed or config.get('experiment', {}).get('seed', 42)
+        self.seed = seed or config.get("experiment", {}).get("seed", 42)
         self.rng = random.Random(self.seed)
-        
+
         # Simulation parameters — config may use 'env' (base.yaml) or 'simulation' key.
         # Phase configs set overrides under 'simulation.*' (via fixed: block), which
         # should take precedence over the base 'env.*' values.
-        sim_cfg      = config.get('env', config.get('simulation', {}))
-        sim_override = config.get('simulation', {})
-        self.complexity_level = sim_override.get('complexity_level',
-                                  sim_cfg.get('complexity_level', 1))
-        self.initial_budget   = sim_cfg.get('initial_budget', 5000)
-        self.max_steps        = sim_override.get('max_steps',
-                                  sim_cfg.get('max_steps', 1000))
+        sim_cfg = config.get("env", config.get("simulation", {}))
+        sim_override = config.get("simulation", {})
+        self.complexity_level = sim_override.get(
+            "complexity_level", sim_cfg.get("complexity_level", 1)
+        )
+        self.initial_budget = sim_cfg.get("initial_budget", 5000)
+        self.max_steps = sim_override.get("max_steps", sim_cfg.get("max_steps", 1000))
         # max_actions caps the total number of tool calls regardless of days elapsed.
         # Defaults to 20× max_steps — a generous safety net for multi-action days.
-        self.max_actions      = sim_override.get('max_actions',
-                                  sim_cfg.get('max_actions', self.max_steps * 20))
-        self.pressure_level   = sim_cfg.get('pressure_level', 'medium')
-        
+        self.max_actions = sim_override.get(
+            "max_actions", sim_cfg.get("max_actions", self.max_steps * 20)
+        )
+        self.pressure_level = sim_cfg.get("pressure_level", "medium")
+
         # PE induction parameters
-        pe_cfg = config.get('pe_induction', {})
-        self.p_shock = pe_cfg.get('p_shock', 0.10)
-        self.pe_mag = pe_cfg.get('pe_mag', 'medium')
-        self.pe_type_mix = pe_cfg.get('pe_type_mix', 'realistic')
-        self.observability = pe_cfg.get('observability', 'full')
-        
+        pe_cfg = config.get("pe_induction", {})
+        self.p_shock = pe_cfg.get("p_shock", 0.10)
+        self.pe_mag = pe_cfg.get("pe_mag", "medium")
+        self.pe_type_mix = pe_cfg.get("pe_type_mix", "realistic")
+        self.observability = pe_cfg.get("observability", "full")
+
         # Demand / customer-order parameters
-        demand_cfg = config.get('demand', {})
-        self.p_customer_order = demand_cfg.get('p_customer_order', 0.30)
-        self.customer_due_days = demand_cfg.get('due_days', 3)
-        self.sale_markup = demand_cfg.get('sale_markup', 1.6)
-        self.late_penalty = demand_cfg.get('late_penalty', 0.0)
-        self.expire_after_days = demand_cfg.get('expire_after_days', 10)
-        self.max_customer_failures = demand_cfg.get('max_failures', 25)
-        
+        demand_cfg = config.get("demand", {})
+        self.p_customer_order = demand_cfg.get("p_customer_order", 0.30)
+        self.customer_due_days = demand_cfg.get("due_days", 3)
+        self.sale_markup = demand_cfg.get("sale_markup", 1.6)
+        self.late_penalty = demand_cfg.get("late_penalty", 0.0)
+        self.expire_after_days = demand_cfg.get("expire_after_days", 10)
+        self.max_customer_failures = demand_cfg.get("max_failures", 25)
+
         # State initialization
         self.current_day = 0
         self.budget = self.initial_budget
         self.storage_capacity = 500
         self.daily_storage_fee = 0.1
-        self.initial_storage_per_sku = sim_cfg.get('initial_storage_per_sku', 0)
-        
+        self.initial_storage_per_sku = sim_cfg.get("initial_storage_per_sku", 0)
+
         # Initialize SKUs and suppliers based on complexity
         self.skus = self._initialize_skus()
         self.suppliers = self._initialize_suppliers()
-        
+
         # Active state
-        self.storage: Dict[str, int] = {sku.id: self.initial_storage_per_sku for sku in self.skus}
+        self.storage: Dict[str, int] = {
+            sku.id: self.initial_storage_per_sku for sku in self.skus
+        }
         self.orders: Dict[str, Order] = {}
         self.customer_orders: Dict[str, CustomerOrder] = {}
         self.inbox: List[Dict[str, Any]] = []
         self.scratchpad: Dict[str, Any] = {}
-        
+
         # Tracking
         self.order_counter = 0
         self.fulfilled_orders = 0
@@ -149,43 +158,42 @@ class VendoMiniEnv:
         self.customer_orders_failed = 0
         self.revenue = 0.0
         self.action_count = 0  # total tool calls across the episode
-        self.last_message = ''  # last tool result; injected by experiment_runner after each step
-        
+        self.last_message = (
+            ""  # last tool result; injected by experiment_runner after each step
+        )
+
     def _initialize_skus(self) -> List[SKU]:
         """Initialize SKUs based on complexity level."""
         sku_counts = {0: 5, 1: 10, 2: 15, 3: 20, 4: 25}
         num_skus = sku_counts.get(self.complexity_level, 10)
-        
-        return [
-            SKU(id=f"sku_{i}", name=f"Product_{i}")
-            for i in range(num_skus)
-        ]
-    
+
+        return [SKU(id=f"sku_{i}", name=f"Product_{i}") for i in range(num_skus)]
+
     def _initialize_suppliers(self) -> List[Supplier]:
         """Initialize suppliers based on complexity level."""
         supplier_counts = {0: 2, 1: 3, 2: 4, 3: 5, 4: 6}
         num_suppliers = supplier_counts.get(self.complexity_level, 3)
-        
+
         suppliers = []
         for i in range(num_suppliers):
             supplier = Supplier(
                 id=f"S{i+1}",
                 name=f"Supplier_{i+1}",
-                reliability=self.rng.uniform(0.85, 0.99)
+                reliability=self.rng.uniform(0.85, 0.99),
             )
-            
+
             # Assign pricing and lead times for each SKU
             for sku in self.skus:
                 base_price = self.rng.uniform(5, 50)
                 base_lead = self.rng.randint(1, 5 + self.complexity_level)
-                
+
                 supplier.base_price[sku.id] = base_price
                 supplier.base_lead_days[sku.id] = base_lead
-            
+
             suppliers.append(supplier)
-        
+
         return suppliers
-    
+
     def reset(self) -> Dict[str, Any]:
         """Reset the environment to initial state."""
         self.current_day = 0
@@ -205,11 +213,13 @@ class VendoMiniEnv:
         self.customer_orders_failed = 0
         self.revenue = 0.0
         self.action_count = 0
-        self.last_message = ''  # reset tool result on new episode
-        
+        self.last_message = ""  # reset tool result on new episode
+
         return self.get_observation()
-    
-    def step(self, action: Dict[str, Any], prediction_card: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], bool]:
+
+    def step(
+        self, action: Dict[str, Any], prediction_card: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Dict[str, Any], bool]:
         """
         Execute one tool call.
 
@@ -226,12 +236,14 @@ class VendoMiniEnv:
         action_result = self._execute_action(action)
 
         # Record action
-        self.action_history.append({
-            'day': self.current_day,
-            'action': action,
-            'result': action_result,
-            'prediction': prediction_card,
-        })
+        self.action_history.append(
+            {
+                "day": self.current_day,
+                "action": action,
+                "result": action_result,
+                "prediction": prediction_card,
+            }
+        )
 
         # Check termination conditions
         done = (
@@ -242,11 +254,11 @@ class VendoMiniEnv:
         )
 
         return self.get_observation(), done, action_result
-    
+
     def _process_deliveries(self):
         """Process orders that are due for delivery today."""
         delivered_orders = []
-        
+
         for order_id, order in self.orders.items():
             if order.status == "pending" and order.eta_day <= self.current_day:
                 # Deliver order
@@ -255,20 +267,22 @@ class VendoMiniEnv:
                 order.status = "delivered"
                 delivered_orders.append(order_id)
                 self.fulfilled_orders += 1
-                
+
                 # Add to inbox
-                self.inbox.append({
-                    'type': 'delivery',
-                    'order_id': order_id,
-                    'sku': order.sku_id,
-                    'quantity': order.quantity,
-                    'day': self.current_day
-                })
-        
+                self.inbox.append(
+                    {
+                        "type": "delivery",
+                        "order_id": order_id,
+                        "sku": order.sku_id,
+                        "quantity": order.quantity,
+                        "day": self.current_day,
+                    }
+                )
+
         # Remove delivered orders
         for order_id in delivered_orders:
             del self.orders[order_id]
-    
+
     def _inject_shock(self) -> Optional[Shock]:
         """Inject a shock based on pe_type_mix and pe_mag."""
         # Determine shock type based on pe_type_mix
@@ -283,45 +297,46 @@ class VendoMiniEnv:
         else:  # realistic
             # Weighted: temporal (40%), quantity (30%), causal (20%), rule (10%)
             shock_type = self.rng.choices(
-                list(ShockType),
-                weights=[0.4, 0.3, 0.2, 0.1]
+                list(ShockType), weights=[0.4, 0.3, 0.2, 0.1]
             )[0]
-        
+
         shock = Shock(
             shock_type=shock_type,
             magnitude=self.pe_mag,
-            observability=self.observability
+            observability=self.observability,
         )
-        
+
         # Apply shock effects
         if shock_type == ShockType.TEMPORAL and self.orders:
             # Delay a random pending order
             pending_orders = [o for o in self.orders.values() if o.status == "pending"]
             if pending_orders:
                 order = self.rng.choice(pending_orders)
-                delay_map = {'low': 1, 'medium': 2, 'high': self.rng.randint(2, 4)}
+                delay_map = {"low": 1, "medium": 2, "high": self.rng.randint(2, 4)}
                 delay = delay_map.get(self.pe_mag, 1)
                 order.eta_day += delay
                 shock.affected_order = order.order_id
                 shock.delay_days = delay
-                
+
                 if self.observability == "full":
-                    self.inbox.append({
-                        'type': 'delay_notice',
-                        'order_id': order.order_id,
-                        'new_eta': order.eta_day,
-                        'day': self.current_day
-                    })
-        
+                    self.inbox.append(
+                        {
+                            "type": "delay_notice",
+                            "order_id": order.order_id,
+                            "new_eta": order.eta_day,
+                            "day": self.current_day,
+                        }
+                    )
+
         elif shock_type == ShockType.QUANTITY and self.orders:
             # Modify quantity of a pending order
             pending_orders = [o for o in self.orders.values() if o.status == "pending"]
             if pending_orders:
                 order = self.rng.choice(pending_orders)
                 mult_ranges = {
-                    'low': (0.9, 1.1),
-                    'medium': (0.7, 1.3),
-                    'high': (0.5, 2.0)
+                    "low": (0.9, 1.1),
+                    "medium": (0.7, 1.3),
+                    "high": (0.5, 2.0),
                 }
                 min_mult, max_mult = mult_ranges.get(self.pe_mag, (0.9, 1.1))
                 multiplier = self.rng.uniform(min_mult, max_mult)
@@ -329,67 +344,67 @@ class VendoMiniEnv:
                 shock.quantity_multiplier = multiplier
                 shock.affected_order = order.order_id
                 order.quantity = new_qty
-        
+
         self.shock_history.append(shock)
         return shock
-    
+
     def _execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool action."""
-        tool = action.get('tool')
-        args = action.get('args', {})
+        tool = action.get("tool")
+        args = action.get("args", {})
 
         try:
-            if tool == 'tool_order':
+            if tool == "tool_order":
                 return self._tool_order(**args)
-            elif tool == 'tool_check_inbox':
+            elif tool == "tool_check_inbox":
                 return self._tool_check_inbox()
-            elif tool == 'tool_check_storage':
+            elif tool == "tool_check_storage":
                 return self._tool_check_storage()
-            elif tool == 'tool_check_budget':
+            elif tool == "tool_check_budget":
                 return self._tool_check_budget()
-            elif tool == 'tool_cancel_order':
+            elif tool == "tool_cancel_order":
                 return self._tool_cancel_order(**args)
-            elif tool == 'tool_quote':
+            elif tool == "tool_quote":
                 return self._tool_quote(**args)
-            elif tool == 'tool_expedite':
+            elif tool == "tool_expedite":
                 return self._tool_expedite(**args)
-            elif tool == 'tool_write_scratchpad':
+            elif tool == "tool_write_scratchpad":
                 return self._tool_write_scratchpad(**args)
-            elif tool == 'tool_read_scratchpad':
+            elif tool == "tool_read_scratchpad":
                 return self._tool_read_scratchpad(**args)
-            elif tool == 'tool_delete_scratchpad':
+            elif tool == "tool_delete_scratchpad":
                 return self._tool_delete_scratchpad(**args)
-            elif tool == 'tool_ship_customer_order':
+            elif tool == "tool_ship_customer_order":
                 return self._tool_ship_customer_order(**args)
-            elif tool == 'tool_end_day':
+            elif tool == "tool_end_day":
                 return self._tool_end_day()
             else:
-                return {'success': False, 'error': f'Unknown tool: {tool}'}
+                return {"success": False, "error": f"Unknown tool: {tool}"}
         except TypeError as e:
             # Missing or unexpected keyword arguments — return a clean error so
             # the agent sees it in last_message and can correct on the next step.
-            return {'success': False, 'error': f'Invalid arguments for {tool}: {e}'}
-    
+            return {"success": False, "error": f"Invalid arguments for {tool}: {e}"}
+
     def _tool_order(self, supplier_id: str, sku: str, quantity: int) -> Dict[str, Any]:
         """Place an order."""
         self.total_orders_requested += 1
-        
+
         # Find supplier
         supplier = next((s for s in self.suppliers if s.id == supplier_id), None)
         if not supplier:
-            return {'success': False, 'error': 'Invalid supplier'}
-        
+            return {"success": False, "error": "Invalid supplier"}
+
         if sku not in supplier.base_price:
-            return {'success': False, 'error': 'SKU not available from supplier'}
-        
+            return {"success": False, "error": "SKU not available from supplier"}
+
         # Create order
         self.order_counter += 1
         order_id = f"ORD{self.order_counter}"
-        
+
         price = supplier.base_price[sku]
         lead_days = supplier.base_lead_days[sku]
         eta_day = self.current_day + lead_days
-        
+
         order = Order(
             order_id=order_id,
             supplier_id=supplier_id,
@@ -397,18 +412,18 @@ class VendoMiniEnv:
             quantity=quantity,
             price_per_unit=price,
             order_day=self.current_day,
-            eta_day=eta_day
+            eta_day=eta_day,
         )
-        
+
         self.orders[order_id] = order
-        
+
         return {
-            'success': True,
-            'order_id': order_id,
-            'eta_day': eta_day,
-            'price': price * quantity
+            "success": True,
+            "order_id": order_id,
+            "eta_day": eta_day,
+            "price": price * quantity,
         }
-    
+
     def _tool_check_inbox(self) -> Dict[str, Any]:
         """Check inbox messages and return all currently open customer orders."""
         messages = self.inbox.copy()
@@ -417,140 +432,144 @@ class VendoMiniEnv:
         # Build list of all open customer orders so the agent knows what IDs to ship
         open_orders = []
         for co_id, co in sorted(
-            self.customer_orders.items(),
-            key=lambda x: x[1].due_day
+            self.customer_orders.items(), key=lambda x: x[1].due_day
         ):
             if co.status == "open":
                 days_remaining = co.due_day - self.current_day
-                open_orders.append({
-                    'customer_order_id': co_id,
-                    'sku': co.sku_id,
-                    'quantity': co.quantity,
-                    'unit_sale_price': round(co.unit_sale_price, 2),
-                    'due_day': co.due_day,
-                    'days_remaining': days_remaining,
-                    'overdue': days_remaining < 0,
-                })
+                open_orders.append(
+                    {
+                        "customer_order_id": co_id,
+                        "sku": co.sku_id,
+                        "quantity": co.quantity,
+                        "unit_sale_price": round(co.unit_sale_price, 2),
+                        "due_day": co.due_day,
+                        "days_remaining": days_remaining,
+                        "overdue": days_remaining < 0,
+                    }
+                )
 
         return {
-            'success': True,
-            'messages': messages,
-            'open_customer_orders': open_orders[:20],  # show up to 20, sorted by urgency
-            'open_count': len(open_orders),
+            "success": True,
+            "messages": messages,
+            "open_customer_orders": open_orders[
+                :20
+            ],  # show up to 20, sorted by urgency
+            "open_count": len(open_orders),
         }
-    
+
     def _tool_check_storage(self) -> Dict[str, Any]:
         """Check storage levels."""
-        return {'success': True, 'storage': self.storage.copy()}
-    
+        return {"success": True, "storage": self.storage.copy()}
+
     def _tool_check_budget(self) -> Dict[str, Any]:
         """Check current budget."""
-        return {'success': True, 'budget': self.budget}
-    
+        return {"success": True, "budget": self.budget}
+
     def _tool_cancel_order(self, order_id: str) -> Dict[str, Any]:
         """Cancel a pending order."""
         if order_id not in self.orders:
-            return {'success': False, 'error': 'Order not found'}
-        
+            return {"success": False, "error": "Order not found"}
+
         order = self.orders[order_id]
         if order.status != "pending":
-            return {'success': False, 'error': 'Order already delivered/cancelled'}
-        
+            return {"success": False, "error": "Order already delivered/cancelled"}
+
         # Apply cancellation fee (10% of order value)
         fee = order.quantity * order.price_per_unit * 0.1
         self.budget -= fee
-        
+
         order.status = "cancelled"
         del self.orders[order_id]
-        
-        return {'success': True, 'ok': True, 'fee': fee}
-    
-    def _tool_quote(self, supplier_id: str = None, sku: str = None, quantity: int = 1) -> Dict[str, Any]:
+
+        return {"success": True, "ok": True, "fee": fee}
+
+    def _tool_quote(
+        self, supplier_id: str = None, sku: str = None, quantity: int = 1
+    ) -> Dict[str, Any]:
         """Get a quote from a supplier."""
         valid_supplier_ids = [s.id for s in self.suppliers]
         valid_sku_ids = [s.id for s in self.skus]
 
         if not supplier_id:
             return {
-                'success': False,
-                'error': (
-                    f'Missing required argument: supplier_id. '
-                    f'Valid supplier IDs: {valid_supplier_ids}. '
+                "success": False,
+                "error": (
+                    f"Missing required argument: supplier_id. "
+                    f"Valid supplier IDs: {valid_supplier_ids}. "
                     f'Usage: {{"supplier_id": "S1", "sku": "sku_0"}}'
-                )
+                ),
             }
         if not sku:
             return {
-                'success': False,
-                'error': (
-                    f'Missing required argument: sku. '
-                    f'Valid SKU IDs: {valid_sku_ids}. '
+                "success": False,
+                "error": (
+                    f"Missing required argument: sku. "
+                    f"Valid SKU IDs: {valid_sku_ids}. "
                     f'Usage: {{"supplier_id": "{supplier_id}", "sku": "sku_0"}}'
-                )
+                ),
             }
 
         supplier = next((s for s in self.suppliers if s.id == supplier_id), None)
         if not supplier:
             return {
-                'success': False,
-                'error': f'Invalid supplier_id "{supplier_id}". Valid IDs: {valid_supplier_ids}'
+                "success": False,
+                "error": f'Invalid supplier_id "{supplier_id}". Valid IDs: {valid_supplier_ids}',
             }
-        
+
         if sku not in supplier.base_price:
             return {
-                'success': False,
-                'error': f'SKU "{sku}" not available from {supplier_id}. Available SKUs: {list(supplier.base_price.keys())}'
+                "success": False,
+                "error": f'SKU "{sku}" not available from {supplier_id}. Available SKUs: {list(supplier.base_price.keys())}',
             }
-        
+
         return {
-            'success': True,
-            'supplier_id': supplier_id,
-            'sku': sku,
-            'unit_price': round(supplier.base_price[sku], 2),
-            'lead_days': supplier.base_lead_days[sku],
-            'total_price': round(supplier.base_price[sku] * quantity, 2),
+            "success": True,
+            "supplier_id": supplier_id,
+            "sku": sku,
+            "unit_price": round(supplier.base_price[sku], 2),
+            "lead_days": supplier.base_lead_days[sku],
+            "total_price": round(supplier.base_price[sku] * quantity, 2),
         }
-    
+
     def _tool_expedite(self, order_id: str) -> Dict[str, Any]:
         """Expedite an order (complexity level 2+)."""
         if self.complexity_level < 2:
-            return {'success': False, 'error': 'Expedite not available at this complexity'}
-        
+            return {
+                "success": False,
+                "error": "Expedite not available at this complexity",
+            }
+
         if order_id not in self.orders:
-            return {'success': False, 'error': 'Order not found'}
-        
+            return {"success": False, "error": "Order not found"}
+
         order = self.orders[order_id]
         if order.status != "pending":
-            return {'success': False, 'error': 'Order already delivered'}
-        
+            return {"success": False, "error": "Order already delivered"}
+
         # Reduce ETA by 1-2 days, charge 50% extra
         days_reduced = min(2, order.eta_day - self.current_day)
         order.eta_day -= days_reduced
         cost = order.quantity * order.price_per_unit * 0.5
         self.budget -= cost
-        
-        return {
-            'success': True,
-            'new_eta_day': order.eta_day,
-            'cost': cost
-        }
-    
+
+        return {"success": True, "new_eta_day": order.eta_day, "cost": cost}
+
     def _tool_write_scratchpad(self, key: str, value: Any) -> Dict[str, Any]:
         """Write to scratchpad memory."""
         self.scratchpad[key] = value
-        return {'success': True}
-    
+        return {"success": True}
+
     def _tool_read_scratchpad(self, key: str) -> Dict[str, Any]:
         """Read from scratchpad memory."""
         value = self.scratchpad.get(key)
-        return {'success': True, 'value': value}
-    
+        return {"success": True, "value": value}
+
     def _tool_delete_scratchpad(self, key: str) -> Dict[str, Any]:
         """Delete from scratchpad memory."""
         if key in self.scratchpad:
             del self.scratchpad[key]
-            return {'success': True}
-        return {'success': False, 'error': 'Key not found'}
+            return {"success": True}
+        return {"success": False, "error": "Key not found"}
 
     def _tool_end_day(self) -> Dict[str, Any]:
         """
@@ -588,17 +607,17 @@ class VendoMiniEnv:
         self.current_day += 1
 
         result: Dict[str, Any] = {
-            'success': True,
-            'day_ended': prev_day,
-            'new_day': self.current_day,
+            "success": True,
+            "day_ended": prev_day,
+            "new_day": self.current_day,
         }
         if shock is not None:
-            result['shock_occurred'] = True
-            result['shock_type'] = shock.shock_type.value
+            result["shock_occurred"] = True
+            result["shock_type"] = shock.shock_type.value
             if shock.affected_order:
-                result['shock_affected_order'] = shock.affected_order
+                result["shock_affected_order"] = shock.affected_order
         else:
-            result['shock_occurred'] = False
+            result["shock_occurred"] = False
 
         return result
 
@@ -606,10 +625,20 @@ class VendoMiniEnv:
         """Stochastically create new customer orders and post them to the inbox."""
         for sku in self.skus:
             if self.rng.random() < self.p_customer_order:
-                quantity = self.rng.randint(1, 5)  # capped at 5; orders of 1-20 are unshippable early on
+                quantity = self.rng.randint(
+                    1, 5
+                )  # capped at 5; orders of 1-20 are unshippable early on
                 # Derive sale price from the cheapest available supplier quote * markup
-                base_prices = [s.base_price[sku.id] for s in self.suppliers if sku.id in s.base_price]
-                unit_price = min(base_prices) * self.sale_markup if base_prices else 10.0 * self.sale_markup
+                base_prices = [
+                    s.base_price[sku.id]
+                    for s in self.suppliers
+                    if sku.id in s.base_price
+                ]
+                unit_price = (
+                    min(base_prices) * self.sale_markup
+                    if base_prices
+                    else 10.0 * self.sale_markup
+                )
 
                 self.customer_order_counter += 1
                 co_id = f"CO{self.customer_order_counter}"
@@ -623,55 +652,65 @@ class VendoMiniEnv:
                 )
                 self.customer_orders[co_id] = co
 
-                self.inbox.append({
-                    'type': 'customer_order',
-                    'customer_order_id': co_id,
-                    'sku': sku.id,
-                    'quantity': quantity,
-                    'unit_sale_price': round(unit_price, 2),
-                    'due_day': co.due_day,
-                    'day': self.current_day,
-                })
+                self.inbox.append(
+                    {
+                        "type": "customer_order",
+                        "customer_order_id": co_id,
+                        "sku": sku.id,
+                        "quantity": quantity,
+                        "unit_sale_price": round(unit_price, 2),
+                        "due_day": co.due_day,
+                        "day": self.current_day,
+                    }
+                )
 
     def _expire_overdue_customer_orders(self):
         """Mark open customer orders that have exceeded expire_after_days as expired."""
         for co in self.customer_orders.values():
-            if co.status == "open" and (self.current_day - co.request_day) >= self.expire_after_days:
+            if (
+                co.status == "open"
+                and (self.current_day - co.request_day) >= self.expire_after_days
+            ):
                 co.status = "expired"
                 self.customer_orders_failed += 1
 
-    def _tool_ship_customer_order(self, customer_order_id: str = None) -> Dict[str, Any]:
+    def _tool_ship_customer_order(
+        self, customer_order_id: str = None
+    ) -> Dict[str, Any]:
         """Ship inventory to fulfil a customer order and collect revenue."""
         if not customer_order_id:
             return {
-                'success': False,
-                'error': (
-                    'Missing required argument: customer_order_id. '
-                    'Call tool_check_inbox first — it returns open_customer_orders with IDs '
+                "success": False,
+                "error": (
+                    "Missing required argument: customer_order_id. "
+                    "Call tool_check_inbox first — it returns open_customer_orders with IDs "
                     '(e.g. "CO1", "CO2"). Then call tool_ship_customer_order with '
                     '{"customer_order_id": "<ID>"}.'
-                )
+                ),
             }
 
         if customer_order_id not in self.customer_orders:
             return {
-                'success': False,
-                'error': (
+                "success": False,
+                "error": (
                     f'Customer order "{customer_order_id}" not found. '
-                    'Call tool_check_inbox to see valid open order IDs.'
-                )
+                    "Call tool_check_inbox to see valid open order IDs."
+                ),
             }
 
         co = self.customer_orders[customer_order_id]
 
         if co.status != "open":
-            return {'success': False, 'error': f'Customer order {customer_order_id} is already {co.status}'}
+            return {
+                "success": False,
+                "error": f"Customer order {customer_order_id} is already {co.status}",
+            }
 
         if self.storage.get(co.sku_id, 0) < co.quantity:
             avail = self.storage.get(co.sku_id, 0)
             return {
-                'success': False,
-                'error': f'Insufficient stock for {co.sku_id}: need {co.quantity}, have {avail}'
+                "success": False,
+                "error": f"Insufficient stock for {co.sku_id}: need {co.quantity}, have {avail}",
             }
 
         # Deduct inventory
@@ -693,14 +732,14 @@ class VendoMiniEnv:
         self.customer_orders_shipped += 1
 
         return {
-            'success': True,
-            'customer_order_id': customer_order_id,
-            'sku': co.sku_id,
-            'quantity': co.quantity,
-            'gross_revenue': round(gross, 2),
-            'late_penalty': round(penalty, 2),
-            'net_revenue': round(net, 2),
-            'new_budget': round(self.budget, 2),
+            "success": True,
+            "customer_order_id": customer_order_id,
+            "sku": co.sku_id,
+            "quantity": co.quantity,
+            "gross_revenue": round(gross, 2),
+            "late_penalty": round(penalty, 2),
+            "net_revenue": round(net, 2),
+            "new_budget": round(self.budget, 2),
         }
 
     def _apply_daily_costs(self):
@@ -708,62 +747,70 @@ class VendoMiniEnv:
         total_storage = sum(self.storage.values())
         fee = total_storage * self.daily_storage_fee
         self.budget -= fee
-    
+
     def get_observation(self) -> Dict[str, Any]:
         """Get current observation."""
         open_cos = [co for co in self.customer_orders.values() if co.status == "open"]
         overdue_cos = [co for co in open_cos if co.due_day < self.current_day]
         return {
-            'day': self.current_day,
-            'budget': self.budget,
-            'revenue': self.revenue,
-            'storage': self.storage.copy(),
-            'storage_capacity': self.storage_capacity,
-            'pending_orders': len([o for o in self.orders.values() if o.status == "pending"]),
-            'inbox_count': len(self.inbox),
-            'total_storage': sum(self.storage.values()),
-            'open_customer_orders': len(open_cos),
-            'overdue_customer_orders': len(overdue_cos),
-            'customer_orders_shipped': self.customer_orders_shipped,
-            'customer_orders_failed': self.customer_orders_failed,
-            'action_count': self.action_count,
-            'message': self.last_message,
+            "day": self.current_day,
+            "budget": self.budget,
+            "revenue": self.revenue,
+            "storage": self.storage.copy(),
+            "storage_capacity": self.storage_capacity,
+            "pending_orders": len(
+                [o for o in self.orders.values() if o.status == "pending"]
+            ),
+            "inbox_count": len(self.inbox),
+            "total_storage": sum(self.storage.values()),
+            "open_customer_orders": len(open_cos),
+            "overdue_customer_orders": len(overdue_cos),
+            "customer_orders_shipped": self.customer_orders_shipped,
+            "customer_orders_failed": self.customer_orders_failed,
+            "action_count": self.action_count,
+            "message": self.last_message,
             # Static metadata — vocabulary the agent needs to form valid actions.
             # These do not change during a run and are NOT subject to blind-state hiding.
-            'sku_ids': [sku.id for sku in self.skus],
-            'supplier_ids': [s.id for s in self.suppliers],
+            "sku_ids": [sku.id for sku in self.skus],
+            "supplier_ids": [s.id for s in self.suppliers],
         }
-    
+
     def get_full_state(self) -> Dict[str, Any]:
         """Get complete state for logging."""
         return {
-            'day': self.current_day,
-            'budget': self.budget,
-            'revenue': self.revenue,
-            'storage': self.storage.copy(),
-            'orders': {oid: {
-                'order_id': o.order_id,
-                'supplier_id': o.supplier_id,
-                'sku_id': o.sku_id,
-                'quantity': o.quantity,
-                'eta_day': o.eta_day,
-                'status': o.status
-            } for oid, o in self.orders.items()},
-            'customer_orders': {coid: {
-                'order_id': co.order_id,
-                'sku_id': co.sku_id,
-                'quantity': co.quantity,
-                'unit_sale_price': co.unit_sale_price,
-                'request_day': co.request_day,
-                'due_day': co.due_day,
-                'status': co.status,
-                'ship_day': co.ship_day,
-            } for coid, co in self.customer_orders.items()},
-            'inbox': self.inbox.copy(),
-            'fulfilled_orders': self.fulfilled_orders,
-            'total_orders_requested': self.total_orders_requested,
-            'customer_orders_shipped': self.customer_orders_shipped,
-            'customer_orders_failed': self.customer_orders_failed,
-            'scratchpad_size': len(self.scratchpad),
-            'scratchpad': self.scratchpad.copy()  # Include full scratchpad contents
+            "day": self.current_day,
+            "budget": self.budget,
+            "revenue": self.revenue,
+            "storage": self.storage.copy(),
+            "orders": {
+                oid: {
+                    "order_id": o.order_id,
+                    "supplier_id": o.supplier_id,
+                    "sku_id": o.sku_id,
+                    "quantity": o.quantity,
+                    "eta_day": o.eta_day,
+                    "status": o.status,
+                }
+                for oid, o in self.orders.items()
+            },
+            "customer_orders": {
+                coid: {
+                    "order_id": co.order_id,
+                    "sku_id": co.sku_id,
+                    "quantity": co.quantity,
+                    "unit_sale_price": co.unit_sale_price,
+                    "request_day": co.request_day,
+                    "due_day": co.due_day,
+                    "status": co.status,
+                    "ship_day": co.ship_day,
+                }
+                for coid, co in self.customer_orders.items()
+            },
+            "inbox": self.inbox.copy(),
+            "fulfilled_orders": self.fulfilled_orders,
+            "total_orders_requested": self.total_orders_requested,
+            "customer_orders_shipped": self.customer_orders_shipped,
+            "customer_orders_failed": self.customer_orders_failed,
+            "scratchpad_size": len(self.scratchpad),
+            "scratchpad": self.scratchpad.copy(),  # Include full scratchpad contents
         }

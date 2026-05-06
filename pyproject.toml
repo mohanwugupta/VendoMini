@@ -1,0 +1,14 @@
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I"]
+ignore = ["E501"]  # line length is enforced by black
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
